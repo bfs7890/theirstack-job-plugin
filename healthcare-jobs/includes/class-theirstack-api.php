@@ -34,6 +34,20 @@ class Healthcare_Jobs_TheirStack_API {
 	public function search_jobs( array $params ) {
 		$api_key = Healthcare_Jobs_Settings::get_api_key();
 
+		// Temporary, safe diagnostics for the auth path shared by "Test API
+		// Connection" and every import request - never the real key, only
+		// its presence/length and a masked tail, written to the PHP error
+		// log only when WP_DEBUG_LOG is enabled (see Healthcare_Jobs_Logger).
+		Healthcare_Jobs_Logger::debug(
+			sprintf(
+				'TheirStack request -> POST %s | key_present=%s key_length=%d authorization=%s',
+				self::API_BASE . '/jobs/search',
+				empty( $api_key ) ? 'NO' : 'YES',
+				strlen( (string) $api_key ),
+				empty( $api_key ) ? 'none' : ( 'Bearer ' . str_repeat( '*', max( 0, strlen( $api_key ) - 4 ) ) . substr( $api_key, -4 ) )
+			)
+		);
+
 		if ( empty( $api_key ) ) {
 			return new WP_Error( 'healthcare_jobs_no_api_key', __( 'No TheirStack API key is configured.', 'healthcare-jobs' ) );
 		}
@@ -60,10 +74,26 @@ class Healthcare_Jobs_TheirStack_API {
 		$body = wp_remote_retrieve_body( $response );
 		$data = json_decode( $body, true );
 
+		Healthcare_Jobs_Logger::debug(
+			sprintf(
+				'TheirStack response <- status=%d jobs_returned=%s body_preview=%s',
+				$code,
+				( is_array( $data ) && isset( $data['data'] ) && is_array( $data['data'] ) ) ? count( $data['data'] ) : 'n/a',
+				substr( (string) $body, 0, 300 )
+			)
+		);
+
 		if ( 401 === $code || 403 === $code ) {
 			return new WP_Error(
 				'healthcare_jobs_auth_failed',
-				__( 'TheirStack rejected the API key (unauthorized). Check the key in Settings.', 'healthcare-jobs' )
+				sprintf(
+					/* translators: 1: HTTP status code, 2: whether a key was present, 3: key length, 4: masked key tail */
+					__( 'TheirStack rejected the API key (HTTP %1$d). Check the key in Settings. [key present: %2$s, length: %3$d, ends with: %4$s]', 'healthcare-jobs' ),
+					$code,
+					empty( $api_key ) ? 'no' : 'yes',
+					strlen( (string) $api_key ),
+					empty( $api_key ) ? 'n/a' : substr( $api_key, -4 )
+				)
 			);
 		}
 

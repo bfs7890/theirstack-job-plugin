@@ -34,6 +34,9 @@ $masked_key         = Healthcare_Jobs_Settings::get_masked_api_key();
 						<p class="description">
 							<?php esc_html_e( 'Stored encrypted in the database. Leave blank to keep the current key unchanged. For maximum security, define HEALTHCARE_JOBS_THEIRSTACK_API_KEY in wp-config.php instead.', 'healthcare-jobs' ); ?>
 						</p>
+						<?php if ( $masked_key ) : ?>
+							<p><label><input type="checkbox" name="clear_api_key" value="1" /> <?php esc_html_e( 'Remove the stored API key (leave unchecked to keep it)', 'healthcare-jobs' ); ?></label></p>
+						<?php endif; ?>
 					<?php endif; ?>
 					<p>
 						<button type="button" class="button" id="healthcare-jobs-test-connection"><?php esc_html_e( 'Test API Connection', 'healthcare-jobs' ); ?></button>

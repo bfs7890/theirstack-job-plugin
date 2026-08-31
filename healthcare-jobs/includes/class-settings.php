@@ -101,13 +101,19 @@ class Healthcare_Jobs_Settings {
 		}
 
 		// API key: only overwrite if a new, non-masked value was submitted.
+		// A blank submission on its own is NOT treated as "clear the key" -
+		// the field is deliberately rendered blank (with a masked
+		// placeholder) on every page load, so saving any other setting
+		// without retyping the key must never silently delete it. Clearing
+		// requires the explicit "Remove API Key" checkbox below.
 		if ( isset( $input['api_key'] ) ) {
 			$raw_key = trim( (string) $input['api_key'] );
 			if ( '' !== $raw_key && false === strpos( $raw_key, '•' ) ) {
 				$sanitised['api_key_encrypted'] = self::encrypt( sanitize_text_field( $raw_key ) );
-			} elseif ( '' === $raw_key ) {
-				$sanitised['api_key_encrypted'] = '';
 			}
+		}
+		if ( ! empty( $input['clear_api_key'] ) ) {
+			$sanitised['api_key_encrypted'] = '';
 		}
 
 		update_option( self::OPTION_KEY, $sanitised, false );
@@ -158,14 +164,54 @@ class Healthcare_Jobs_Settings {
 		return '' !== self::get_api_key();
 	}
 
+	const ENCRYPTION_SECRET_OPTION = 'healthcare_jobs_encryption_secret';
+
 	/**
-	 * Derives a per-site encryption key from WordPress's own secret salts,
-	 * so the encrypted value in the database is useless without also having
-	 * access to wp-config.php.
+	 * Returns the random secret used to derive the encryption key, creating
+	 * it once and storing it in the database (not autoloaded).
+	 *
+	 * This is intentionally a dedicated stored secret rather than being
+	 * derived from AUTH_KEY/SECURE_AUTH_KEY: those wp-config.php constants
+	 * can legitimately differ between servers behind a load balancer, or
+	 * get rotated by a security tool, and either case silently breaks
+	 * decryption on whichever request/server did not encrypt the value -
+	 * the exact "Test Connection works, the next real request gets a 401"
+	 * symptom this fixes. A value read from the shared database is
+	 * guaranteed identical on every server and every cron run.
+	 *
+	 * @return string
+	 */
+	private static function get_encryption_secret() {
+		$secret = get_option( self::ENCRYPTION_SECRET_OPTION );
+
+		if ( is_string( $secret ) && strlen( $secret ) >= 32 ) {
+			return $secret;
+		}
+
+		$secret = function_exists( 'random_bytes' ) ? base64_encode( random_bytes( 32 ) ) : wp_generate_password( 64, true, true );
+		update_option( self::ENCRYPTION_SECRET_OPTION, $secret, false );
+
+		return $secret;
+	}
+
+	/**
+	 * Derives the AES key from the stored secret.
 	 *
 	 * @return string 32-byte binary key.
 	 */
 	private static function derive_key() {
+		return hash( 'sha256', self::get_encryption_secret(), true );
+	}
+
+	/**
+	 * The original (pre-fix) key derivation, kept only so
+	 * maybe_migrate_api_key_encryption() can read values that were
+	 * encrypted before this fix and re-encrypt them under the new,
+	 * stable secret.
+	 *
+	 * @return string 32-byte binary key.
+	 */
+	private static function derive_key_legacy() {
 		$secret = '';
 		if ( defined( 'AUTH_KEY' ) && AUTH_KEY ) {
 			$secret .= AUTH_KEY;
@@ -174,10 +220,44 @@ class Healthcare_Jobs_Settings {
 			$secret .= SECURE_AUTH_KEY;
 		}
 		if ( '' === $secret ) {
-			// Extremely unlikely on a real WordPress install, but avoid a fatal.
 			$secret = DB_NAME . DB_HOST;
 		}
 		return hash( 'sha256', $secret, true );
+	}
+
+	/**
+	 * One-time migration from the legacy salt-derived encryption key to the
+	 * new stable, database-stored secret. Safe to call on every request
+	 * (checks a flag and returns immediately after the first successful
+	 * run); only touches the stored API key, nothing else.
+	 *
+	 * @return void
+	 */
+	public static function maybe_migrate_api_key_encryption() {
+		if ( get_option( 'healthcare_jobs_api_key_migrated' ) ) {
+			return;
+		}
+
+		$encrypted = self::get( 'api_key_encrypted', '' );
+
+		if ( ! empty( $encrypted ) && 0 === strpos( $encrypted, 'enc:' ) ) {
+			$raw = base64_decode( substr( $encrypted, 4 ) );
+			if ( false !== $raw && strlen( $raw ) >= 17 ) {
+				$iv        = substr( $raw, 0, 16 );
+				$data      = substr( $raw, 16 );
+				$decrypted = openssl_decrypt( $data, 'aes-256-cbc', self::derive_key_legacy(), OPENSSL_RAW_DATA, $iv );
+
+				// A successful legacy decrypt yields a short, printable
+				// token; garbage from a mismatched key will not.
+				if ( false !== $decrypted && strlen( $decrypted ) > 0 && strlen( $decrypted ) < 500 && ctype_print( $decrypted ) ) {
+					$settings                       = self::get_all();
+					$settings['api_key_encrypted']  = self::encrypt( $decrypted );
+					update_option( self::OPTION_KEY, $settings, false );
+				}
+			}
+		}
+
+		update_option( 'healthcare_jobs_api_key_migrated', 1 );
 	}
 
 	/**

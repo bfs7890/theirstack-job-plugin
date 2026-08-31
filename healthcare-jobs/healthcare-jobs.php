@@ -101,6 +101,7 @@ register_deactivation_hook( __FILE__, 'healthcare_jobs_deactivate' );
 function healthcare_jobs_bootstrap() {
 	load_plugin_textdomain( 'healthcare-jobs', false, dirname( HEALTHCARE_JOBS_PLUGIN_BASENAME ) . '/languages' );
 	Healthcare_Jobs_Database::maybe_upgrade();
+	Healthcare_Jobs_Settings::maybe_migrate_api_key_encryption();
 }
 add_action( 'plugins_loaded', 'healthcare_jobs_bootstrap' );
 
