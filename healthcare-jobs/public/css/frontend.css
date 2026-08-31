@@ -1,0 +1,258 @@
+.healthcare-jobs-search-form {
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+	padding: 16px;
+	margin-bottom: 20px;
+}
+
+.healthcare-jobs-search-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+
+.healthcare-jobs-input {
+	flex: 1 1 200px;
+	padding: 8px 10px;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	font-size: 14px;
+}
+
+.healthcare-jobs-search-btn {
+	padding: 8px 20px;
+	background: #2271b1;
+	color: #fff;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 14px;
+}
+
+.healthcare-jobs-search-btn:hover {
+	background: #135e96;
+}
+
+.healthcare-jobs-filter-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.healthcare-jobs-filter-row select {
+	padding: 6px 8px;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	font-size: 13px;
+	flex: 1 1 150px;
+}
+
+.healthcare-jobs-results-meta {
+	margin-bottom: 12px;
+	color: #50575e;
+	font-size: 14px;
+}
+
+.healthcare-jobs-list {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.healthcare-jobs-card {
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+	padding: 16px 18px;
+	background: #fff;
+}
+
+.healthcare-jobs-card-title {
+	margin: 0 0 6px;
+	font-size: 18px;
+}
+
+.healthcare-jobs-card-title a {
+	text-decoration: none;
+}
+
+.healthcare-jobs-card-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin-bottom: 8px;
+	font-size: 13px;
+	color: #50575e;
+}
+
+.healthcare-jobs-card-badge {
+	background: #f0f0f1;
+	border-radius: 12px;
+	padding: 2px 10px;
+	font-size: 12px;
+}
+
+.healthcare-jobs-card-badge-category {
+	background: #e7f2fa;
+	color: #135e96;
+}
+
+.healthcare-jobs-card-salary {
+	font-weight: 600;
+	margin-bottom: 8px;
+}
+
+.healthcare-jobs-card-excerpt {
+	color: #3c434a;
+	font-size: 14px;
+	margin: 0 0 10px;
+}
+
+.healthcare-jobs-card-footer {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-size: 13px;
+	color: #646970;
+}
+
+.healthcare-jobs-card-apply {
+	background: #2271b1;
+	color: #fff;
+	padding: 6px 14px;
+	border-radius: 4px;
+	text-decoration: none;
+	font-size: 13px;
+}
+
+.healthcare-jobs-card-apply:hover {
+	background: #135e96;
+	color: #fff;
+}
+
+.healthcare-jobs-empty {
+	padding: 30px;
+	text-align: center;
+	color: #646970;
+}
+
+.healthcare-jobs-pagination {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 20px;
+	justify-content: center;
+}
+
+.healthcare-jobs-page-btn {
+	padding: 6px 12px;
+	border: 1px solid #c3c4c7;
+	background: #fff;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.healthcare-jobs-page-btn.is-active {
+	background: #2271b1;
+	color: #fff;
+	border-color: #2271b1;
+}
+
+.healthcare-jobs-loading {
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+/* Single job page */
+.healthcare-jobs-container {
+	max-width: 800px;
+	margin: 0 auto;
+	padding: 24px 16px;
+}
+
+.healthcare-jobs-notice {
+	padding: 12px 16px;
+	border-radius: 6px;
+	margin-bottom: 16px;
+	font-size: 14px;
+}
+
+.healthcare-jobs-notice-source {
+	background: #f0f6fc;
+	color: #1d2327;
+	border: 1px solid #c5d9ed;
+}
+
+.healthcare-jobs-notice-closed {
+	background: #fcf0f1;
+	color: #8a1f1f;
+	border: 1px solid #f3c6c6;
+}
+
+.healthcare-jobs-single-header h1 {
+	margin-bottom: 8px;
+}
+
+.healthcare-jobs-single-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	align-items: center;
+	margin-bottom: 10px;
+	font-size: 14px;
+}
+
+.healthcare-jobs-single-salary {
+	font-weight: 700;
+	font-size: 16px;
+	margin-bottom: 6px;
+}
+
+.healthcare-jobs-single-date {
+	color: #646970;
+	font-size: 13px;
+	margin-bottom: 16px;
+}
+
+.healthcare-jobs-apply-btn {
+	display: inline-block;
+	background: #2271b1;
+	color: #fff;
+	padding: 12px 28px;
+	border-radius: 4px;
+	text-decoration: none;
+	font-weight: 600;
+	margin: 10px 0 20px;
+}
+
+.healthcare-jobs-apply-btn:hover {
+	background: #135e96;
+	color: #fff;
+}
+
+.healthcare-jobs-single-section {
+	margin: 24px 0;
+}
+
+.healthcare-jobs-single-content {
+	line-height: 1.7;
+}
+
+.healthcare-jobs-back-link {
+	margin-top: 30px;
+}
+
+@media ( max-width: 600px ) {
+	.healthcare-jobs-search-row,
+	.healthcare-jobs-filter-row {
+		flex-direction: column;
+	}
+
+	.healthcare-jobs-card-footer {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 8px;
+	}
+}

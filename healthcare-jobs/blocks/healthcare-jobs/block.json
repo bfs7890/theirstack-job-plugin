@@ -1,0 +1,30 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "healthcare-jobs/job-board",
+	"title": "Healthcare Jobs Board",
+	"category": "widgets",
+	"icon": "heart",
+	"description": "Displays the searchable healthcare jobs board (same output as the [healthcare_jobs] shortcode).",
+	"keywords": [ "jobs", "healthcare", "vacancies", "recruitment" ],
+	"attributes": {
+		"category": {
+			"type": "string",
+			"default": ""
+		},
+		"location": {
+			"type": "string",
+			"default": ""
+		},
+		"limit": {
+			"type": "number",
+			"default": 0
+		}
+	},
+	"supports": {
+		"html": false
+	},
+	"textdomain": "healthcare-jobs",
+	"editorScript": "file:./index.js",
+	"render": "file:./render.php"
+}

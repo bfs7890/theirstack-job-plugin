@@ -1,0 +1,134 @@
+.healthcare-jobs-wrap .healthcare-jobs-stat-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 16px;
+	margin: 20px 0;
+}
+
+.healthcare-jobs-stat-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	padding: 16px 20px;
+	min-width: 150px;
+	flex: 1 1 150px;
+}
+
+.healthcare-jobs-stat-card .stat-number {
+	display: block;
+	font-size: 28px;
+	font-weight: 600;
+	line-height: 1.2;
+}
+
+.healthcare-jobs-stat-card .stat-label {
+	display: block;
+	color: #646970;
+	font-size: 13px;
+	margin-top: 4px;
+}
+
+.healthcare-jobs-summary-table {
+	max-width: 700px;
+}
+
+.healthcare-jobs-summary-table th {
+	width: 220px;
+}
+
+.healthcare-jobs-badge {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: uppercase;
+	background: #f0f0f1;
+	color: #50575e;
+}
+
+.healthcare-jobs-badge-active,
+.healthcare-jobs-badge-success {
+	background: #edfaef;
+	color: #1a7f37;
+}
+
+.healthcare-jobs-badge-closed,
+.healthcare-jobs-badge-expired,
+.healthcare-jobs-badge-failed {
+	background: #fcf0f1;
+	color: #b32d2e;
+}
+
+.healthcare-jobs-badge-partial,
+.healthcare-jobs-badge-running {
+	background: #fcf9e8;
+	color: #996800;
+}
+
+.healthcare-jobs-inline-form {
+	margin: 12px 0 20px;
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+.healthcare-jobs-inline-form-delete {
+	display: inline;
+}
+
+.healthcare-jobs-category-box {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	padding: 16px 20px;
+	margin-bottom: 16px;
+	max-width: 700px;
+}
+
+.healthcare-jobs-title-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	list-style: none;
+	margin: 10px 0;
+	padding: 0;
+}
+
+.healthcare-jobs-title-list li {
+	background: #f0f0f1;
+	border-radius: 12px;
+	padding: 4px 10px;
+	font-size: 13px;
+}
+
+.healthcare-jobs-title-list button {
+	background: none;
+	border: none;
+	color: #b32d2e;
+	cursor: pointer;
+	margin-left: 4px;
+}
+
+.healthcare-jobs-filters {
+	display: flex;
+	gap: 8px;
+	margin: 16px 0;
+}
+
+.healthcare-jobs-test-result {
+	margin-left: 8px;
+	font-weight: 600;
+}
+
+.healthcare-jobs-test-result.success {
+	color: #1a7f37;
+}
+
+.healthcare-jobs-test-result.error {
+	color: #b32d2e;
+}
+
+.healthcare-jobs-import-progress {
+	margin: 16px 0;
+}
