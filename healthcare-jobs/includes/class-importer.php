@@ -136,6 +136,21 @@ class Healthcare_Jobs_Importer {
 			$count = count( $jobs );
 
 			if ( 0 === $count ) {
+				if ( 0 === $page ) {
+					// A 200 response with zero jobs is not necessarily an
+					// error, but it is exactly the kind of silent failure
+					// an admin cannot otherwise diagnose - e.g. a rejected
+					// filter combination some APIs report as an empty
+					// result set instead of an HTTP error. Record what was
+					// actually sent/received (no secrets in either) so
+					// Import History gives a real starting point.
+					$errors[] = sprintf(
+						/* translators: 1: request parameters as JSON, 2: total_results reported by the API, if any */
+						__( 'TheirStack returned zero jobs for this request. Sent: %1$s. API-reported total_results: %2$s.', 'healthcare-jobs' ),
+						wp_json_encode( $params ),
+						null === $this->api->extract_total_results( $response ) ? 'n/a' : $this->api->extract_total_results( $response )
+					);
+				}
 				break;
 			}
 

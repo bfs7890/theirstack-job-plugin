@@ -48,17 +48,33 @@
 				$progress.prop( 'hidden', true );
 				if ( response.success ) {
 					var stats = response.data.stats || {};
-					$result.html(
-						'<div class="notice notice-success"><p>' +
+					var status = response.data.status || 'success';
+					var noticeClass = 'failed' === status ? 'notice-error' : ( 'partial' === status ? 'notice-warning' : 'notice-success' );
+
+					var $notice = $( '<div class="notice"><p></p></div>' ).addClass( noticeClass );
+					$notice.find( 'p' ).text(
 						'Found: ' + ( stats.jobs_found || 0 ) +
-						' &middot; Imported: ' + ( stats.jobs_imported || 0 ) +
-						' &middot; Updated: ' + ( stats.jobs_updated || 0 ) +
-						' &middot; Skipped: ' + ( stats.jobs_skipped || 0 ) +
-						' &middot; Expired: ' + ( stats.jobs_expired || 0 ) +
-						'</p></div>'
+						' · Imported: ' + ( stats.jobs_imported || 0 ) +
+						' · Updated: ' + ( stats.jobs_updated || 0 ) +
+						' · Skipped: ' + ( stats.jobs_skipped || 0 ) +
+						' · Expired: ' + ( stats.jobs_expired || 0 )
 					);
+
+					var errors = response.data.errors || [];
+					if ( errors.length ) {
+						var $details = $( '<details><summary></summary></details>' );
+						$details.find( 'summary' ).text( errors.length + ' message(s) from this import' );
+						var $list = $( '<ul></ul>' );
+						errors.forEach( function ( message ) {
+							$( '<li></li>' ).text( message ).appendTo( $list );
+						} );
+						$details.append( $list );
+						$notice.append( $details );
+					}
+
+					$result.empty().append( $notice );
 				} else {
-					$result.html( '<div class="notice notice-error"><p>' + response.data.message + '</p></div>' );
+					$result.html( '<div class="notice notice-error"><p></p></div>' ).find( 'p' ).text( response.data.message );
 					$importButton.prop( 'disabled', false );
 				}
 			} ).fail( function () {
