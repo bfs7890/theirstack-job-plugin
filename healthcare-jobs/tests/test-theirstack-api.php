@@ -112,23 +112,88 @@ class Healthcare_Jobs_TheirStack_API_Test extends WP_UnitTestCase {
 	public function test_test_connection_success() {
 		$this->mock_response = array(
 			'response' => array( 'code' => 200 ),
-			'body'     => wp_json_encode( array( 'data' => array(), 'metadata' => array( 'total_results' => 0 ) ) ),
+			'body'     => wp_json_encode( array( 'data' => array( array( 'id' => 'x' ) ), 'metadata' => array( 'total_results' => 1 ) ) ),
 		);
 
+		$api    = new Healthcare_Jobs_TheirStack_API();
+		$result = $api->test_connection();
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['jobs_returned'] );
+	}
+
+	public function test_test_connection_does_not_filter_by_country_or_title() {
+		$this->mock_response = function ( $args ) {
+			$body = json_decode( $args['body'], true );
+			$this->assertArrayNotHasKey( 'job_country_code_or', $body );
+			$this->assertArrayNotHasKey( 'job_title_or', $body );
+			return $this->json_response_helper( array( 'data' => array() ) );
+		};
+
 		$api = new Healthcare_Jobs_TheirStack_API();
-		$this->assertTrue( $api->test_connection() );
+		$api->test_connection();
+	}
+
+	private function json_response_helper( array $body, $code = 200 ) {
+		return array(
+			'response' => array( 'code' => $code ),
+			'body'     => wp_json_encode( $body ),
+		);
 	}
 
 	public function test_test_connection_failure_returns_wp_error() {
 		$this->mock_response = array(
 			'response' => array( 'code' => 403 ),
-			'body'     => '{}',
+			'body'     => wp_json_encode( array( 'message' => 'Forbidden: no access to this endpoint on your plan' ) ),
 		);
 
 		$api    = new Healthcare_Jobs_TheirStack_API();
 		$result = $api->test_connection();
 
 		$this->assertWPError( $result );
+		$this->assertSame( 'healthcare_jobs_forbidden', $result->get_error_code() );
+		$this->assertStringContainsString( 'no access to this endpoint', $result->get_error_message() );
+	}
+
+	public function test_401_is_distinguished_from_403() {
+		$this->mock_response = array(
+			'response' => array( 'code' => 401 ),
+			'body'     => wp_json_encode( array( 'message' => 'Invalid API key' ) ),
+		);
+
+		$api    = new Healthcare_Jobs_TheirStack_API();
+		$result = $api->search_jobs( array( 'limit' => 1 ) );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'healthcare_jobs_auth_failed', $result->get_error_code() );
+	}
+
+	public function test_402_payment_required_is_reported_distinctly() {
+		$this->mock_response = array(
+			'response' => array( 'code' => 402 ),
+			'body'     => wp_json_encode( array( 'message' => 'Insufficient credits' ) ),
+		);
+
+		$api    = new Healthcare_Jobs_TheirStack_API();
+		$result = $api->search_jobs( array( 'limit' => 1 ) );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'healthcare_jobs_payment_required', $result->get_error_code() );
+		$this->assertStringContainsString( 'Insufficient credits', $result->get_error_message() );
+	}
+
+	public function test_422_invalid_request_is_reported_distinctly() {
+		$this->mock_response = array(
+			'response' => array( 'code' => 422 ),
+			'body'     => wp_json_encode( array( 'detail' => 'limit must be a positive integer' ) ),
+		);
+
+		$api    = new Healthcare_Jobs_TheirStack_API();
+		$result = $api->search_jobs( array( 'limit' => 1 ) );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'healthcare_jobs_invalid_request', $result->get_error_code() );
+		$this->assertStringContainsString( 'limit must be a positive integer', $result->get_error_message() );
 	}
 
 	public function test_build_search_params_includes_required_freshness_filter() {

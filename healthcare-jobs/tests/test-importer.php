@@ -185,6 +185,31 @@ class Healthcare_Jobs_Importer_Test extends WP_UnitTestCase {
 		$this->assertNotNull( Healthcare_Jobs_Jobs::find_by_external_id( 'keep-me' ), 'Existing jobs must survive a failed import.' );
 	}
 
+	public function test_403_is_reported_as_authentication_stage_not_empty_search() {
+		$this->mock_response = array(
+			'response' => array( 'code' => 403 ),
+			'body'     => wp_json_encode( array( 'message' => 'This endpoint is not available on your plan' ) ),
+		);
+
+		$importer = new Healthcare_Jobs_Importer();
+		$result   = $importer->run( 'manual' );
+
+		$this->assertSame( 'failed', $result['status'] );
+		$this->assertSame( 'authentication', $result['stage'], 'A 403 must be flagged as an authentication-stage failure, not treated like a normal empty search.' );
+		$this->assertSame( 'healthcare_jobs_forbidden', $result['error_code'] );
+		$this->assertSame( 0, $result['stats']['jobs_found'], 'No search actually ran, so jobs_found is 0 - but the caller must key off stage/error_code, not this number, to know why.' );
+	}
+
+	public function test_successful_search_stage_is_reported_when_no_request_error_occurs() {
+		$this->mock_response = $this->json_response( array( 'data' => array( $this->raw_job() ) ) );
+
+		$importer = new Healthcare_Jobs_Importer();
+		$result   = $importer->run( 'manual' );
+
+		$this->assertSame( 'search', $result['stage'] );
+		$this->assertNull( $result['error_code'] );
+	}
+
 	public function test_concurrent_import_is_blocked_by_lock() {
 		set_transient( Healthcare_Jobs_Importer::LOCK_KEY, time(), 60 );
 

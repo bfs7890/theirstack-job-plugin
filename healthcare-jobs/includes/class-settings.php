@@ -134,7 +134,10 @@ class Healthcare_Jobs_Settings {
 	 */
 	public static function get_api_key() {
 		if ( defined( 'HEALTHCARE_JOBS_THEIRSTACK_API_KEY' ) && HEALTHCARE_JOBS_THEIRSTACK_API_KEY ) {
-			return (string) HEALTHCARE_JOBS_THEIRSTACK_API_KEY;
+			// A wp-config.php define() can pick up an accidental trailing
+			// space/newline from copy-pasting; trim defensively on every
+			// read (never otherwise modify the key).
+			return trim( (string) HEALTHCARE_JOBS_THEIRSTACK_API_KEY );
 		}
 
 		$encrypted = self::get( 'api_key_encrypted', '' );
@@ -142,7 +145,41 @@ class Healthcare_Jobs_Settings {
 			return '';
 		}
 
-		return self::decrypt( $encrypted );
+		return trim( self::decrypt( $encrypted ) );
+	}
+
+	/**
+	 * Flags characters in the configured key that would silently break the
+	 * Authorization header even though length/tail look plausible: quote
+	 * marks (from pasting a value that included its surrounding quotes),
+	 * whitespace/control characters other than the outer trim() already
+	 * removes, and literal HTML-entity-encoded quotes. Used only for the
+	 * masked diagnostics - the key itself is never altered beyond trim().
+	 *
+	 * @return string[] Human-readable list of problems found, empty if none.
+	 */
+	public static function get_api_key_warnings() {
+		$key = self::get_api_key();
+		if ( '' === $key ) {
+			return array();
+		}
+
+		$warnings = array();
+
+		if ( preg_match( '/[\'"`]/', $key ) ) {
+			$warnings[] = __( 'contains a quote character - if you pasted the key with quotes around it, remove them', 'healthcare-jobs' );
+		}
+		if ( preg_match( '/&quot;|&#0?39;|%22|%27/i', $key ) ) {
+			$warnings[] = __( 'contains an HTML-entity or URL-encoded quote sequence', 'healthcare-jobs' );
+		}
+		if ( preg_match( '/\s/', $key ) ) {
+			$warnings[] = __( 'contains internal whitespace or a line break', 'healthcare-jobs' );
+		}
+		if ( preg_match( '/[\x00-\x08\x0B\x0C\x0E-\x1F]/', $key ) ) {
+			$warnings[] = __( 'contains a non-printable control character', 'healthcare-jobs' );
+		}
+
+		return $warnings;
 	}
 
 	/**

@@ -38,13 +38,17 @@ class Healthcare_Jobs_TheirStack_API {
 		// Connection" and every import request - never the real key, only
 		// its presence/length and a masked tail, written to the PHP error
 		// log only when WP_DEBUG_LOG is enabled (see Healthcare_Jobs_Logger).
+		$key_warnings = Healthcare_Jobs_Settings::get_api_key_warnings();
 		Healthcare_Jobs_Logger::debug(
 			sprintf(
-				'TheirStack request -> POST %s | key_present=%s key_length=%d authorization=%s',
+				'TheirStack request -> POST %s | key_present=%s key_length=%d key_first4=%s key_last4=%s authorization=%s warnings=%s',
 				self::API_BASE . '/jobs/search',
 				empty( $api_key ) ? 'NO' : 'YES',
 				strlen( (string) $api_key ),
-				empty( $api_key ) ? 'none' : ( 'Bearer ' . str_repeat( '*', max( 0, strlen( $api_key ) - 4 ) ) . substr( $api_key, -4 ) )
+				empty( $api_key ) ? 'n/a' : substr( $api_key, 0, 4 ),
+				empty( $api_key ) ? 'n/a' : substr( $api_key, -4 ),
+				empty( $api_key ) ? 'none' : ( 'Bearer ' . str_repeat( '*', max( 0, strlen( $api_key ) - 4 ) ) . substr( $api_key, -4 ) ),
+				empty( $key_warnings ) ? 'none' : implode( '; ', $key_warnings )
 			)
 		);
 
@@ -83,16 +87,60 @@ class Healthcare_Jobs_TheirStack_API {
 			)
 		);
 
-		if ( 401 === $code || 403 === $code ) {
+		// TheirStack's own explanation (a "message"/"detail"/"error" field,
+		// or the raw body) is the single most useful diagnostic here - it
+		// never contains our API key, only TheirStack's response, so it is
+		// always safe to surface directly in the admin UI.
+		$api_message = self::extract_api_message( $data, $body );
+		$key_summary = sprintf(
+			'[key present: %1$s, length: %2$d, ends with: %3$s]',
+			empty( $api_key ) ? 'no' : 'yes',
+			strlen( (string) $api_key ),
+			empty( $api_key ) ? 'n/a' : substr( $api_key, -4 )
+		);
+
+		if ( 401 === $code ) {
 			return new WP_Error(
 				'healthcare_jobs_auth_failed',
 				sprintf(
-					/* translators: 1: HTTP status code, 2: whether a key was present, 3: key length, 4: masked key tail */
-					__( 'TheirStack rejected the API key (HTTP %1$d). Check the key in Settings. [key present: %2$s, length: %3$d, ends with: %4$s]', 'healthcare-jobs' ),
-					$code,
-					empty( $api_key ) ? 'no' : 'yes',
-					strlen( (string) $api_key ),
-					empty( $api_key ) ? 'n/a' : substr( $api_key, -4 )
+					/* translators: 1: TheirStack's response text, 2: masked key summary */
+					__( 'TheirStack rejected the request: the API key is missing or invalid (HTTP 401). TheirStack said: "%1$s" %2$s. Regenerate or check the key in TheirStack -> Settings -> API Keys.', 'healthcare-jobs' ),
+					$api_message,
+					$key_summary
+				)
+			);
+		}
+
+		if ( 403 === $code ) {
+			return new WP_Error(
+				'healthcare_jobs_forbidden',
+				sprintf(
+					/* translators: 1: TheirStack's response text, 2: masked key summary */
+					__( 'TheirStack accepted the key but forbade this request (HTTP 403) - this usually means the account/plan does not have access to this endpoint, or is out of credits, rather than a malformed key. TheirStack said: "%1$s" %2$s. Check your plan and API access at TheirStack -> Settings -> API Keys.', 'healthcare-jobs' ),
+					$api_message,
+					$key_summary
+				)
+			);
+		}
+
+		if ( 402 === $code ) {
+			return new WP_Error(
+				'healthcare_jobs_payment_required',
+				sprintf(
+					/* translators: %s: TheirStack's response text */
+					__( 'TheirStack reports insufficient credits or a billing issue (HTTP 402). TheirStack said: "%s". Check credits/billing at TheirStack -> Settings.', 'healthcare-jobs' ),
+					$api_message
+				)
+			);
+		}
+
+		if ( 422 === $code ) {
+			return new WP_Error(
+				'healthcare_jobs_invalid_request',
+				sprintf(
+					/* translators: %s: TheirStack's response text */
+					__( 'TheirStack rejected the request body as invalid (HTTP 422). TheirStack said: "%s".', 'healthcare-jobs' ),
+					$api_message
 				)
 			);
 		}
@@ -102,12 +150,15 @@ class Healthcare_Jobs_TheirStack_API {
 		}
 
 		if ( $code < 200 || $code >= 300 ) {
-			$message = is_array( $data ) && ! empty( $data['message'] ) ? $data['message'] : sprintf(
-				/* translators: %d: HTTP status code */
-				__( 'TheirStack API returned an unexpected error (HTTP %d).', 'healthcare-jobs' ),
-				$code
+			return new WP_Error(
+				'healthcare_jobs_api_error',
+				sprintf(
+					/* translators: 1: HTTP status code, 2: TheirStack's response text */
+					__( 'TheirStack API returned an unexpected error (HTTP %1$d). TheirStack said: "%2$s".', 'healthcare-jobs' ),
+					$code,
+					$api_message
+				)
 			);
-			return new WP_Error( 'healthcare_jobs_api_error', $message );
 		}
 
 		if ( ! is_array( $data ) ) {
@@ -115,6 +166,37 @@ class Healthcare_Jobs_TheirStack_API {
 		}
 
 		return $data;
+	}
+
+	/**
+	 * Pulls a short, human-readable explanation out of a non-2xx response.
+	 * Only ever reads TheirStack's own response - never anything supplied
+	 * by this plugin - so it is always safe to display.
+	 *
+	 * @param mixed  $data Decoded JSON body, or null/false if it wasn't JSON.
+	 * @param string $body Raw response body.
+	 * @return string
+	 */
+	private static function extract_api_message( $data, $body ) {
+		if ( is_array( $data ) ) {
+			foreach ( array( 'message', 'detail', 'error', 'title' ) as $key ) {
+				if ( ! empty( $data[ $key ] ) && is_string( $data[ $key ] ) ) {
+					return $data[ $key ];
+				}
+			}
+			if ( ! empty( $data['errors'] ) && is_array( $data['errors'] ) ) {
+				$first = reset( $data['errors'] );
+				if ( is_string( $first ) ) {
+					return $first;
+				}
+				if ( is_array( $first ) && ! empty( $first['message'] ) ) {
+					return (string) $first['message'];
+				}
+			}
+		}
+
+		$body = trim( (string) $body );
+		return '' === $body ? __( '(empty response body)', 'healthcare-jobs' ) : substr( $body, 0, 300 );
 	}
 
 	/**
@@ -169,16 +251,18 @@ class Healthcare_Jobs_TheirStack_API {
 	}
 
 	/**
-	 * Runs a minimal, low-cost request purely to validate the configured
-	 * API key and connectivity, for the admin "Test API Connection" button.
+	 * Runs the smallest valid request purely to validate the configured API
+	 * key and authorization, for the admin "Test API Connection" button.
+	 * Deliberately no country/title filter - just the one freshness filter
+	 * TheirStack requires - so this tests authentication only, not the
+	 * healthcare search itself.
 	 *
-	 * @return true|WP_Error
+	 * @return array{jobs_returned:int}|WP_Error
 	 */
 	public function test_connection() {
 		$params = $this->build_search_params(
 			array(
-				'country_code' => 'GB',
-				'max_age_days' => 1,
+				'max_age_days' => 30,
 				'limit'        => 1,
 				'page'         => 0,
 			)
@@ -194,7 +278,7 @@ class Healthcare_Jobs_TheirStack_API {
 			return new WP_Error( 'healthcare_jobs_bad_response', __( 'Connected, but the response did not look like a TheirStack jobs response.', 'healthcare-jobs' ) );
 		}
 
-		return true;
+		return array( 'jobs_returned' => count( $this->extract_jobs( $result ) ) );
 	}
 
 	/**

@@ -49,30 +49,46 @@
 				if ( response.success ) {
 					var stats = response.data.stats || {};
 					var status = response.data.status || 'success';
-					var noticeClass = 'failed' === status ? 'notice-error' : ( 'partial' === status ? 'notice-warning' : 'notice-success' );
-
-					var $notice = $( '<div class="notice"><p></p></div>' ).addClass( noticeClass );
-					$notice.find( 'p' ).text(
-						'Found: ' + ( stats.jobs_found || 0 ) +
-						' · Imported: ' + ( stats.jobs_imported || 0 ) +
-						' · Updated: ' + ( stats.jobs_updated || 0 ) +
-						' · Skipped: ' + ( stats.jobs_skipped || 0 ) +
-						' · Expired: ' + ( stats.jobs_expired || 0 )
-					);
-
+					var stage = response.data.stage || 'search';
 					var errors = response.data.errors || [];
-					if ( errors.length ) {
-						var $details = $( '<details><summary></summary></details>' );
-						$details.find( 'summary' ).text( errors.length + ' message(s) from this import' );
-						var $list = $( '<ul></ul>' );
-						errors.forEach( function ( message ) {
-							$( '<li></li>' ).text( message ).appendTo( $list );
-						} );
-						$details.append( $list );
-						$notice.append( $details );
+
+					var $notice;
+
+					if ( 'authentication' === stage ) {
+						// A failure before any job search could run (bad key,
+						// forbidden, out of credits, rate limited, invalid
+						// request) must never look like a normal empty
+						// search - no stats grid, just the failure itself.
+						$notice = $( '<div class="notice notice-error"><p><strong></strong></p></div>' );
+						$notice.find( 'strong' ).text( 'Authentication/API request failed - no job search ran.' );
+						if ( errors.length ) {
+							$( '<p></p>' ).text( errors[ 0 ] ).appendTo( $notice );
+						}
+					} else {
+						var noticeClass = 'failed' === status ? 'notice-error' : ( 'partial' === status ? 'notice-warning' : 'notice-success' );
+						$notice = $( '<div class="notice"><p></p></div>' ).addClass( noticeClass );
+						$notice.find( 'p' ).text(
+							'Found: ' + ( stats.jobs_found || 0 ) +
+							' · Imported: ' + ( stats.jobs_imported || 0 ) +
+							' · Updated: ' + ( stats.jobs_updated || 0 ) +
+							' · Skipped: ' + ( stats.jobs_skipped || 0 ) +
+							' · Expired: ' + ( stats.jobs_expired || 0 )
+						);
+
+						if ( errors.length ) {
+							var $details = $( '<details><summary></summary></details>' );
+							$details.find( 'summary' ).text( errors.length + ' message(s) from this import' );
+							var $list = $( '<ul></ul>' );
+							errors.forEach( function ( message ) {
+								$( '<li></li>' ).text( message ).appendTo( $list );
+							} );
+							$details.append( $list );
+							$notice.append( $details );
+						}
 					}
 
 					$result.empty().append( $notice );
+					$importButton.prop( 'disabled', false );
 				} else {
 					$result.html( '<div class="notice notice-error"><p></p></div>' ).find( 'p' ).text( response.data.message );
 					$importButton.prop( 'disabled', false );

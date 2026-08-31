@@ -331,7 +331,15 @@ class Healthcare_Jobs_Admin {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 		}
 
-		wp_send_json_success( array( 'message' => __( 'Connection successful. Your TheirStack API key is valid.', 'healthcare-jobs' ) ) );
+		wp_send_json_success(
+			array(
+				'message' => sprintf(
+					/* translators: %d: number of jobs returned by the minimal test query */
+					__( 'Authentication successful (HTTP 200). Minimal query returned %d job(s).', 'healthcare-jobs' ),
+					isset( $result['jobs_returned'] ) ? (int) $result['jobs_returned'] : 0
+				),
+			)
+		);
 	}
 
 	public static function ajax_run_import() {

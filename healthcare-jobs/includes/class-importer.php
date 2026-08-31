@@ -57,17 +57,18 @@ class Healthcare_Jobs_Importer {
 			'jobs_skipped'  => 0,
 			'jobs_expired'  => 0,
 		);
-		$errors = array();
+		$errors      = array();
+		$error_code  = null;
 
 		if ( ! Healthcare_Jobs_Settings::has_api_key() ) {
 			$errors[] = __( 'No TheirStack API key configured.', 'healthcare-jobs' );
 			Healthcare_Jobs_Logger::finish_import( $log_id, $stats, 'failed', $errors );
 			delete_transient( self::LOCK_KEY );
-			return array( 'error' => $errors[0], 'stats' => $stats );
+			return array( 'error' => $errors[0], 'stats' => $stats, 'error_code' => 'healthcare_jobs_no_api_key', 'stage' => 'authentication' );
 		}
 
 		try {
-			$this->fetch_and_import( $stats, $errors );
+			$this->fetch_and_import( $stats, $errors, $error_code );
 
 			$settings              = Healthcare_Jobs_Settings::get_all();
 			$stats['jobs_expired'] = Healthcare_Jobs_Jobs::expire_by_max_age( $settings['default_job_age_days'] )
@@ -86,17 +87,42 @@ class Healthcare_Jobs_Importer {
 
 		delete_transient( self::LOCK_KEY );
 
-		return array( 'stats' => $stats, 'status' => $status, 'errors' => $errors );
+		// Authentication/authorization/billing/request failures happen
+		// before any job search could possibly have run, so the admin UI
+		// must present them as a distinct failure stage - never as an
+		// indistinguishable "Found: 0" as if a normal empty search ran.
+		$auth_stage_codes = array(
+			'healthcare_jobs_no_api_key',
+			'healthcare_jobs_auth_failed',
+			'healthcare_jobs_forbidden',
+			'healthcare_jobs_payment_required',
+			'healthcare_jobs_invalid_request',
+			'healthcare_jobs_rate_limited',
+		);
+		$stage = in_array( $error_code, $auth_stage_codes, true ) ? 'authentication' : 'search';
+
+		return array(
+			'stats'      => $stats,
+			'status'     => $status,
+			'errors'     => $errors,
+			'error_code' => $error_code,
+			'stage'      => $stage,
+		);
 	}
 
 	/**
 	 * Fetches all pages up to the configured maximum and imports each job.
 	 *
-	 * @param array $stats  Reference to the running stats array.
-	 * @param array $errors Reference to the running errors array.
+	 * @param array      $stats      Reference to the running stats array.
+	 * @param array      $errors     Reference to the running errors array.
+	 * @param string|null $error_code Reference set to the WP_Error code of
+	 *                                the first request-level failure, if any
+	 *                                (as opposed to a per-job skip), so the
+	 *                                caller can tell an authentication/API
+	 *                                failure apart from a normal empty result.
 	 * @return void
 	 */
-	private function fetch_and_import( array &$stats, array &$errors ) {
+	private function fetch_and_import( array &$stats, array &$errors, &$error_code = null ) {
 		$settings = Healthcare_Jobs_Settings::get_all();
 
 		$job_titles = Healthcare_Jobs_Categories::get_all_titles();
@@ -129,6 +155,9 @@ class Healthcare_Jobs_Importer {
 
 			if ( is_wp_error( $response ) ) {
 				$errors[] = $response->get_error_message();
+				if ( null === $error_code ) {
+					$error_code = $response->get_error_code();
+				}
 				break;
 			}
 
