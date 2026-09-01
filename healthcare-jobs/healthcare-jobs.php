@@ -3,7 +3,7 @@
  * Plugin Name:       Healthcare Jobs Aggregator
  * Plugin URI:        https://example.com/healthcare-jobs
  * Description:       Imports UK healthcare vacancies from the TheirStack Jobs API into a local database and displays them as a searchable job board via the [healthcare_jobs] shortcode.
- * Version:           1.0.0
+ * Version:           1.0.1
  * Requires at least: 5.9
  * Requires PHP:      7.4
  * Author:            Healthcare Jobs Aggregator
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'HEALTHCARE_JOBS_VERSION', '1.0.0' );
+define( 'HEALTHCARE_JOBS_VERSION', '1.0.1' );
 define( 'HEALTHCARE_JOBS_PLUGIN_FILE', __FILE__ );
 define( 'HEALTHCARE_JOBS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'HEALTHCARE_JOBS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

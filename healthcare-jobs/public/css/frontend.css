@@ -61,16 +61,26 @@
  * items default to min-width: auto, which lets a long unbroken string
  * (a long job title, a URL-like company name) force the column wider than
  * its track and cause page-level horizontal scrolling.
+ *
+ * !important on the layout-defining declarations only (never on colour,
+ * spacing, or typography below): many WordPress themes and page builders
+ * (this grid ships inside an Elementor page on the live site) load a
+ * global list/article reset after plugin stylesheets, which otherwise
+ * silently wins on equal specificity and collapses the grid back to a
+ * plain stacked list with no visible error or console warning.
  */
 .healthcare-jobs-list {
-	display: grid;
-	grid-template-columns: repeat( 3, minmax( 0, 1fr ) );
+	display: grid !important;
+	grid-template-columns: repeat( 3, minmax( 0, 1fr ) ) !important;
 	gap: 20px;
 	align-items: stretch;
+	list-style: none;
+	margin: 0;
+	padding: 0;
 }
 
 .healthcare-jobs-card {
-	display: flex;
+	display: flex !important;
 	flex-direction: column;
 	min-width: 0;
 	height: 100%;
@@ -310,14 +320,14 @@
    width at every size - only the job results reflow into columns. */
 @media ( max-width: 1024px ) {
 	.healthcare-jobs-list {
-		grid-template-columns: repeat( 2, minmax( 0, 1fr ) );
+		grid-template-columns: repeat( 2, minmax( 0, 1fr ) ) !important;
 	}
 }
 
 /* Mobile: single column. */
 @media ( max-width: 767px ) {
 	.healthcare-jobs-list {
-		grid-template-columns: 1fr;
+		grid-template-columns: 1fr !important;
 	}
 }
 
