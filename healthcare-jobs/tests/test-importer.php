@@ -67,14 +67,19 @@ class Healthcare_Jobs_Importer_Test extends WP_UnitTestCase {
 		);
 	}
 
-	public function test_successful_import_creates_jobs_and_company() {
-		$this->mock_response = $this->json_response( array( 'data' => array( $this->raw_job() ) ) );
+	public function test_successful_import_creates_a_directorist_listing() {
+		$this->mock_response = $this->json_response( array( 'data' => array( $this->raw_job( array( 'id' => 'create-me' ) ) ) ) );
 
 		$importer = new Healthcare_Jobs_Importer();
 		$result   = $importer->run( 'manual' );
 
-		$this->assertSame( 1, $result['stats']['jobs_imported'] );
-		$this->assertSame( 1, Healthcare_Jobs_Companies::count_all() );
+		$this->assertSame( 1, $result['stats']['jobs_created'] );
+
+		$post_id = Healthcare_Jobs_Directorist_Sync::find_existing_post_id( 'create-me' );
+		$this->assertNotSame( 0, $post_id );
+		$this->assertSame( 'at_biz_dir', get_post_type( $post_id ) );
+		$this->assertSame( 'publish', get_post_status( $post_id ) );
+		$this->assertSame( 'Royal Health Trust', get_post_meta( $post_id, '_custom-text', true ) );
 	}
 
 	public function test_pagination_fetches_multiple_pages() {
@@ -104,7 +109,7 @@ class Healthcare_Jobs_Importer_Test extends WP_UnitTestCase {
 		$result   = $importer->run( 'manual' );
 
 		// max_jobs_per_import=2 with a page size of 2 should stop after one page.
-		$this->assertSame( 2, $result['stats']['jobs_imported'] );
+		$this->assertSame( 2, $result['stats']['jobs_created'] );
 	}
 
 	public function test_duplicate_job_across_two_imports_updates_not_duplicates() {
@@ -118,14 +123,14 @@ class Healthcare_Jobs_Importer_Test extends WP_UnitTestCase {
 		$this->mock_response  = $this->json_response( array( 'data' => array( $job_payload ) ) );
 		$result = $importer->run( 'manual' );
 
-		$this->assertSame( 0, $result['stats']['jobs_imported'] );
+		$this->assertSame( 0, $result['stats']['jobs_created'] );
 		$this->assertSame( 1, $result['stats']['jobs_updated'] );
 
-		$job = Healthcare_Jobs_Jobs::find_by_external_id( 'stable-id-1' );
-		$this->assertSame( 'Registered Nurse (Updated Title)', $job['title'] );
+		$post_id = Healthcare_Jobs_Directorist_Sync::find_existing_post_id( 'stable-id-1' );
+		$this->assertSame( 'Registered Nurse (Updated Title)', get_the_title( $post_id ) );
 	}
 
-	public function test_company_shared_across_multiple_jobs() {
+	public function test_same_company_across_multiple_jobs_stores_the_same_name() {
 		$this->mock_response = $this->json_response(
 			array(
 				'data' => array(
@@ -136,11 +141,15 @@ class Healthcare_Jobs_Importer_Test extends WP_UnitTestCase {
 		);
 
 		$importer = new Healthcare_Jobs_Importer();
-		$importer->run( 'manual' );
+		$result   = $importer->run( 'manual' );
 
-		$this->assertSame( 1, Healthcare_Jobs_Companies::count_all() );
-		$company = Healthcare_Jobs_Companies::find_by_external_id( 'co-shared' );
-		$this->assertSame( 2, (int) $company['active_jobs'] );
+		$this->assertSame( 2, $result['stats']['jobs_created'] );
+
+		$post_1 = Healthcare_Jobs_Directorist_Sync::find_existing_post_id( 'shared-1' );
+		$post_2 = Healthcare_Jobs_Directorist_Sync::find_existing_post_id( 'shared-2' );
+
+		$this->assertSame( 'Shared Trust', get_post_meta( $post_1, '_custom-text', true ) );
+		$this->assertSame( 'Shared Trust', get_post_meta( $post_2, '_custom-text', true ) );
 	}
 
 	public function test_job_with_missing_title_is_skipped_not_fatal() {
@@ -156,7 +165,7 @@ class Healthcare_Jobs_Importer_Test extends WP_UnitTestCase {
 		$importer = new Healthcare_Jobs_Importer();
 		$result   = $importer->run( 'manual' );
 
-		$this->assertSame( 1, $result['stats']['jobs_imported'] );
+		$this->assertSame( 1, $result['stats']['jobs_created'] );
 		$this->assertSame( 1, $result['stats']['jobs_skipped'] );
 	}
 
@@ -168,8 +177,30 @@ class Healthcare_Jobs_Importer_Test extends WP_UnitTestCase {
 		$importer = new Healthcare_Jobs_Importer();
 		$result   = $importer->run( 'manual' );
 
-		$this->assertSame( 0, $result['stats']['jobs_imported'] );
+		$this->assertSame( 0, $result['stats']['jobs_created'] );
 		$this->assertSame( 1, $result['stats']['jobs_skipped'] );
+	}
+
+	/**
+	 * @dataProvider healthcare_jobs_false_positive_titles
+	 */
+	public function test_non_healthcare_titles_matching_a_search_term_are_still_not_imported( $title ) {
+		$this->mock_response = $this->json_response(
+			array( 'data' => array( $this->raw_job( array( 'title' => $title ) ) ) )
+		);
+
+		$importer = new Healthcare_Jobs_Importer();
+		$result   = $importer->run( 'manual' );
+
+		$this->assertSame( 0, $result['stats']['jobs_created'], "\"{$title}\" must not be imported as a healthcare job." );
+	}
+
+	public function healthcare_jobs_false_positive_titles() {
+		return array(
+			array( 'IT Consultant' ),
+			array( 'Health & Safety Consultant' ),
+			array( 'Tile Sales Consultant' ),
+		);
 	}
 
 	public function test_api_failure_is_logged_and_does_not_delete_existing_jobs() {
@@ -182,7 +213,23 @@ class Healthcare_Jobs_Importer_Test extends WP_UnitTestCase {
 
 		$this->assertSame( 'failed', $result['status'] );
 		$this->assertNotEmpty( $result['errors'] );
-		$this->assertNotNull( Healthcare_Jobs_Jobs::find_by_external_id( 'keep-me' ), 'Existing jobs must survive a failed import.' );
+		$this->assertNotSame( 0, Healthcare_Jobs_Directorist_Sync::find_existing_post_id( 'keep-me' ), 'Existing jobs must survive a failed import.' );
+	}
+
+	public function test_job_reported_closed_marks_the_existing_listing_closed_not_deleted() {
+		$this->mock_response = $this->json_response( array( 'data' => array( $this->raw_job( array( 'id' => 'will-close' ) ) ) ) );
+		$importer = new Healthcare_Jobs_Importer();
+		$importer->run( 'manual' );
+
+		$post_id = Healthcare_Jobs_Directorist_Sync::find_existing_post_id( 'will-close' );
+		$this->assertSame( 'publish', get_post_status( $post_id ) );
+
+		$this->mock_response = $this->json_response( array( 'data' => array( $this->raw_job( array( 'id' => 'will-close', 'is_active' => false ) ) ) ) );
+		$result = $importer->run( 'manual' );
+
+		$this->assertSame( 1, $result['stats']['jobs_closed'] );
+		$this->assertNotNull( get_post( $post_id ), 'A closed job must never be hard-deleted.' );
+		$this->assertSame( Healthcare_Jobs_Directorist_Mapper::get_closed_post_status(), get_post_status( $post_id ) );
 	}
 
 	public function test_403_is_reported_as_authentication_stage_not_empty_search() {

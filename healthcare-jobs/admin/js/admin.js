@@ -69,10 +69,11 @@
 						$notice = $( '<div class="notice"><p></p></div>' ).addClass( noticeClass );
 						$notice.find( 'p' ).text(
 							'Found: ' + ( stats.jobs_found || 0 ) +
-							' · Imported: ' + ( stats.jobs_imported || 0 ) +
+							' · Created: ' + ( stats.jobs_created || 0 ) +
 							' · Updated: ' + ( stats.jobs_updated || 0 ) +
 							' · Skipped: ' + ( stats.jobs_skipped || 0 ) +
-							' · Expired: ' + ( stats.jobs_expired || 0 )
+							' · Closed: ' + ( stats.jobs_closed || 0 ) +
+							' · Failed: ' + ( stats.jobs_failed || 0 )
 						);
 
 						if ( errors.length ) {
@@ -97,6 +98,39 @@
 				$progress.prop( 'hidden', true );
 				$result.html( '<div class="notice notice-error"><p>Import request failed. Please try again.</p></div>' );
 				$importButton.prop( 'disabled', false );
+			} );
+		} );
+
+		var $migrateButton = $( '#healthcare-jobs-run-migration' );
+		var $migrateResult = $( '#healthcare-jobs-migration-result' );
+
+		$migrateButton.on( 'click', function () {
+			$migrateButton.prop( 'disabled', true );
+			$migrateResult.empty();
+
+			$.post( HealthcareJobsAdmin.ajaxUrl, {
+				action: 'healthcare_jobs_run_migration',
+				nonce: HealthcareJobsAdmin.nonce
+			} ).done( function ( response ) {
+				if ( response.success ) {
+					var stats = ( response.data && response.data.stats ) || {};
+					var $notice = $( '<div class="notice notice-success"><p></p></div>' );
+					$notice.find( 'p' ).text(
+						'Found: ' + ( stats.jobs_found || 0 ) +
+						' · Created: ' + ( stats.jobs_created || 0 ) +
+						' · Updated: ' + ( stats.jobs_updated || 0 ) +
+						' · Skipped: ' + ( stats.jobs_skipped || 0 ) +
+						' · Closed: ' + ( stats.jobs_closed || 0 ) +
+						' · Failed: ' + ( stats.jobs_failed || 0 )
+					);
+					$migrateResult.empty().append( $notice );
+				} else {
+					$migrateResult.html( '<div class="notice notice-error"><p></p></div>' ).find( 'p' ).text( response.data.message );
+					$migrateButton.prop( 'disabled', false );
+				}
+			} ).fail( function () {
+				$migrateResult.html( '<div class="notice notice-error"><p>Migration request failed. Please try again.</p></div>' );
+				$migrateButton.prop( 'disabled', false );
 			} );
 		} );
 	} );

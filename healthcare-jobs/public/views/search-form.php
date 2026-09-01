@@ -8,8 +8,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
-$categories       = Healthcare_Jobs_Categories::get_names();
-$specialties      = Healthcare_Jobs_Search::get_filter_options( 'specialty' );
+$categories       = Healthcare_Jobs_Search::get_top_level_categories();
+$specialties      = Healthcare_Jobs_Search::get_specialty_terms();
 $employment_types = Healthcare_Jobs_Search::get_filter_options( 'employment_type' );
 $remote_types     = Healthcare_Jobs_Search::get_filter_options( 'remote_type' );
 ?>
@@ -22,15 +22,15 @@ $remote_types     = Healthcare_Jobs_Search::get_filter_options( 'remote_type' );
 	<div class="healthcare-jobs-filter-row">
 		<select name="category">
 			<option value=""><?php esc_html_e( 'All Categories', 'healthcare-jobs' ); ?></option>
-			<?php foreach ( $categories as $name ) : ?>
-				<option value="<?php echo esc_attr( $name ); ?>" <?php selected( $filters['category'], $name ); ?>><?php echo esc_html( $name ); ?></option>
+			<?php foreach ( $categories as $term ) : ?>
+				<option value="<?php echo esc_attr( $term->term_id ); ?>" <?php selected( (string) $filters['category'], (string) $term->term_id ); ?>><?php echo esc_html( $term->name ); ?></option>
 			<?php endforeach; ?>
 		</select>
 
 		<select name="specialty">
 			<option value=""><?php esc_html_e( 'All Specialties', 'healthcare-jobs' ); ?></option>
-			<?php foreach ( $specialties as $name ) : ?>
-				<option value="<?php echo esc_attr( $name ); ?>" <?php selected( $filters['specialty'], $name ); ?>><?php echo esc_html( $name ); ?></option>
+			<?php foreach ( $specialties as $term ) : ?>
+				<option value="<?php echo esc_attr( $term->term_id ); ?>" <?php selected( (string) $filters['specialty'], (string) $term->term_id ); ?>><?php echo esc_html( $term->name ); ?></option>
 			<?php endforeach; ?>
 		</select>
 

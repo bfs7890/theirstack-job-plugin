@@ -8,7 +8,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-$job_url = Healthcare_Jobs_SEO::get_job_url( $job );
+$job_url = $job['permalink'];
 
 $salary_text = '';
 if ( ! empty( $job['salary_min'] ) || ! empty( $job['salary_max'] ) ) {

@@ -19,11 +19,33 @@ class Healthcare_Jobs_TheirStack_API {
 	const API_BASE = 'https://api.theirstack.com/v1';
 
 	/**
-	 * Maximum jobs TheirStack allows per page (per their published API docs).
+	 * Maximum jobs per page TheirStack will return in a single request.
+	 *
+	 * TheirStack's general API docs cite up to 500, but the current free
+	 * plan caps at 25 per page regardless - requesting more than the
+	 * plan allows risks a 422/403 rather than a smaller page, so this
+	 * stays at the safe, confirmed-working value. The importer already
+	 * loops multiple pages to reach a larger configured maximum, so this
+	 * only affects how many requests that takes, not how many jobs can be
+	 * imported in total. Raise via the `healthcare_jobs_theirstack_max_page_size`
+	 * filter if the account is upgraded to a plan with a higher per-page limit.
 	 *
 	 * @var int
 	 */
-	const MAX_PAGE_SIZE = 500;
+	const MAX_PAGE_SIZE = 25;
+
+	/**
+	 * Returns the effective maximum page size (MAX_PAGE_SIZE, unless
+	 * overridden via the `healthcare_jobs_theirstack_max_page_size` filter).
+	 * Callers that need to plan pagination (e.g. the importer) should use
+	 * this rather than the raw constant so a filtered override is honoured
+	 * consistently everywhere.
+	 *
+	 * @return int
+	 */
+	public static function get_max_page_size() {
+		return (int) apply_filters( 'healthcare_jobs_theirstack_max_page_size', self::MAX_PAGE_SIZE );
+	}
 
 	/**
 	 * Sends a single page request to POST /v1/jobs/search.
@@ -213,9 +235,19 @@ class Healthcare_Jobs_TheirStack_API {
 	 * @return array
 	 */
 	public function build_search_params( array $args ) {
+		/**
+		 * Filters the maximum jobs per page sent to TheirStack. Defaults to
+		 * MAX_PAGE_SIZE (the confirmed safe limit for the current plan) -
+		 * raise this only if the account has been upgraded to a plan that
+		 * genuinely allows a larger page size.
+		 *
+		 * @param int $max_page_size Default maximum page size.
+		 */
+		$max_page_size = (int) apply_filters( 'healthcare_jobs_theirstack_max_page_size', self::MAX_PAGE_SIZE );
+
 		$params = array(
 			'page'  => isset( $args['page'] ) ? max( 0, (int) $args['page'] ) : 0,
-			'limit' => isset( $args['limit'] ) ? max( 1, min( self::MAX_PAGE_SIZE, (int) $args['limit'] ) ) : 100,
+			'limit' => isset( $args['limit'] ) ? max( 1, min( $max_page_size, (int) $args['limit'] ) ) : min( $max_page_size, 100 ),
 		);
 
 		if ( ! empty( $args['country_code'] ) ) {

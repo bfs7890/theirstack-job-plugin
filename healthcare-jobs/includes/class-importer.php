@@ -1,11 +1,14 @@
 <?php
 /**
- * Import orchestration: TheirStack -> local database.
+ * Import orchestration: TheirStack -> Directorist.
  *
- * Fetches paginated results from TheirStack, maps each record onto the
- * local schema, deduplicates against wp_healthcare_jobs, and writes an
- * import log entry. A transient lock prevents two imports (manual + cron,
- * or two overlapping cron ticks) from running at the same time.
+ * Fetches paginated results from TheirStack, classifies each job into a
+ * real Directorist category (Healthcare_Jobs_Classifier), maps it onto
+ * Directorist's field schema (Healthcare_Jobs_Directorist_Mapper), and
+ * writes it as a Directorist listing (Healthcare_Jobs_Directorist_Sync).
+ * Directorist is the authoritative store; this class never keeps its own
+ * copy of listing content. A transient lock prevents two imports (manual +
+ * cron, or two overlapping cron ticks) from running at the same time.
  *
  * @package HealthcareJobs
  */
@@ -36,6 +39,24 @@ class Healthcare_Jobs_Importer {
 	}
 
 	/**
+	 * The stats keys every run reports, per the required admin summary:
+	 * Found / Created in Directorist / Updated in Directorist / Skipped /
+	 * Closed / Failed.
+	 *
+	 * @return array
+	 */
+	private static function empty_stats() {
+		return array(
+			'jobs_found'   => 0,
+			'jobs_created' => 0,
+			'jobs_updated' => 0,
+			'jobs_skipped' => 0,
+			'jobs_closed'  => 0,
+			'jobs_failed'  => 0,
+		);
+	}
+
+	/**
 	 * Runs a full import. Safe to call from cron or from an admin button.
 	 *
 	 * @param string $trigger_type 'manual' or 'cron'.
@@ -50,15 +71,9 @@ class Healthcare_Jobs_Importer {
 
 		$log_id = Healthcare_Jobs_Logger::start_import( $trigger_type );
 
-		$stats = array(
-			'jobs_found'    => 0,
-			'jobs_imported' => 0,
-			'jobs_updated'  => 0,
-			'jobs_skipped'  => 0,
-			'jobs_expired'  => 0,
-		);
-		$errors      = array();
-		$error_code  = null;
+		$stats      = self::empty_stats();
+		$errors     = array();
+		$error_code = null;
 
 		if ( ! Healthcare_Jobs_Settings::has_api_key() ) {
 			$errors[] = __( 'No TheirStack API key configured.', 'healthcare-jobs' );
@@ -69,21 +84,19 @@ class Healthcare_Jobs_Importer {
 
 		try {
 			$this->fetch_and_import( $stats, $errors, $error_code );
-
-			$settings              = Healthcare_Jobs_Settings::get_all();
-			$stats['jobs_expired'] = Healthcare_Jobs_Jobs::expire_by_max_age( $settings['default_job_age_days'] )
-				+ Healthcare_Jobs_Jobs::expire_unseen( max( 2, (int) $settings['default_job_age_days'] ) );
 		} catch ( \Throwable $e ) {
 			$errors[] = 'Unexpected error: ' . $e->getMessage();
 			Healthcare_Jobs_Logger::debug( 'Importer exception: ' . $e->getMessage() );
 		}
 
 		$status = 'success';
-		if ( ! empty( $errors ) ) {
-			$status = ( $stats['jobs_imported'] > 0 || $stats['jobs_updated'] > 0 ) ? 'partial' : 'failed';
+		if ( $stats['jobs_failed'] > 0 && 0 === $stats['jobs_created'] && 0 === $stats['jobs_updated'] ) {
+			$status = 'failed';
+		} elseif ( ! empty( $errors ) || $stats['jobs_failed'] > 0 ) {
+			$status = ( $stats['jobs_created'] > 0 || $stats['jobs_updated'] > 0 ) ? 'partial' : 'failed';
 		}
 
-		Healthcare_Jobs_Logger::finish_import( $log_id, $stats, $status, $errors );
+		Healthcare_Jobs_Logger::finish_import( $log_id, self::to_legacy_log_stats( $stats ), $status, $errors );
 
 		delete_transient( self::LOCK_KEY );
 
@@ -111,10 +124,28 @@ class Healthcare_Jobs_Importer {
 	}
 
 	/**
+	 * Maps the new stat keys onto the columns Healthcare_Jobs_Logger's
+	 * import-log table already has (jobs_imported/jobs_expired), so the
+	 * existing log schema doesn't need a migration of its own.
+	 *
+	 * @param array $stats New-style stats.
+	 * @return array
+	 */
+	private static function to_legacy_log_stats( array $stats ) {
+		return array(
+			'jobs_found'    => $stats['jobs_found'],
+			'jobs_imported' => $stats['jobs_created'],
+			'jobs_updated'  => $stats['jobs_updated'],
+			'jobs_skipped'  => $stats['jobs_skipped'],
+			'jobs_expired'  => $stats['jobs_closed'],
+		);
+	}
+
+	/**
 	 * Fetches all pages up to the configured maximum and imports each job.
 	 *
-	 * @param array      $stats      Reference to the running stats array.
-	 * @param array      $errors     Reference to the running errors array.
+	 * @param array       $stats      Reference to the running stats array.
+	 * @param array       $errors     Reference to the running errors array.
 	 * @param string|null $error_code Reference set to the WP_Error code of
 	 *                                the first request-level failure, if any
 	 *                                (as opposed to a per-job skip), so the
@@ -132,7 +163,7 @@ class Healthcare_Jobs_Importer {
 		}
 
 		$max_jobs  = max( 1, (int) $settings['max_jobs_per_import'] );
-		$page_size = min( Healthcare_Jobs_TheirStack_API::MAX_PAGE_SIZE, $max_jobs );
+		$page_size = min( Healthcare_Jobs_TheirStack_API::get_max_page_size(), $max_jobs );
 
 		$page          = 0;
 		$fetched_total = 0;
@@ -161,7 +192,7 @@ class Healthcare_Jobs_Importer {
 				break;
 			}
 
-			$jobs = $this->api->extract_jobs( $response );
+			$jobs  = $this->api->extract_jobs( $response );
 			$count = count( $jobs );
 
 			if ( 0 === $count ) {
@@ -200,8 +231,10 @@ class Healthcare_Jobs_Importer {
 	}
 
 	/**
-	 * Maps and imports a single raw TheirStack job record. Failures here
-	 * only skip this one record; they never abort the whole run.
+	 * Classifies, maps, and syncs a single raw TheirStack job record into
+	 * Directorist. Failures here only skip this one record; they never
+	 * abort the whole run, and each failure records which stage it
+	 * happened at (classification, mapping, or Directorist sync).
 	 *
 	 * @param array $raw    Raw job object from the API.
 	 * @param array $stats  Reference to running stats.
@@ -211,30 +244,31 @@ class Healthcare_Jobs_Importer {
 	private function import_one( array $raw, array &$stats, array &$errors ) {
 		$external_id = self::extract( $raw, array( 'id', 'job_id', 'uuid' ) );
 		$title       = trim( (string) self::extract( $raw, array( 'title', 'job_title' ) ) );
+		$description = (string) self::extract( $raw, array( 'description', 'job_description' ) );
 
 		if ( empty( $external_id ) || '' === $title ) {
 			++$stats['jobs_skipped'];
 			$errors[] = sprintf(
 				/* translators: %s: raw job identifier or "unknown" */
-				__( 'Skipped a job with missing ID or title (%s).', 'healthcare-jobs' ),
+				__( '[validation] Skipped a job with missing ID or title (%s).', 'healthcare-jobs' ),
 				empty( $external_id ) ? 'unknown id' : $external_id
 			);
 			return;
 		}
 
-		$category = self::extract( $raw, array( 'category' ) );
-		if ( empty( $category ) ) {
-			$category = Healthcare_Jobs_Categories::classify_title( $title );
-		}
+		$classification = Healthcare_Jobs_Classifier::classify( $title, $description );
 
-		if ( empty( $category ) ) {
+		if ( 0 === $classification['term_id'] ) {
 			// The API's own title search is an OR match, so results can
-			// still include titles outside our configured healthcare list.
-			// Only store what we can classify.
+			// still include titles outside our configured healthcare list,
+			// or titles that matched a search term but failed the
+			// classifier's context/exclusion checks (e.g. "IT Consultant").
+			// Only store what we can confidently classify into a real
+			// Directorist category.
 			++$stats['jobs_skipped'];
 			$errors[] = sprintf(
 				/* translators: %s: job title */
-				__( 'Skipped "%s" - does not match a configured healthcare job title.', 'healthcare-jobs' ),
+				__( '[classification] Skipped "%s" - did not match a configured healthcare category.', 'healthcare-jobs' ),
 				$title
 			);
 			return;
@@ -244,26 +278,16 @@ class Healthcare_Jobs_Importer {
 		$status_field = strtolower( (string) self::extract( $raw, array( 'status' ) ) );
 		$is_closed    = ( false === $is_active ) || in_array( $status_field, array( 'closed', 'expired', 'filled' ), true );
 
-		if ( $is_closed && 'open' === Healthcare_Jobs_Settings::get( 'default_job_status', 'open' ) ) {
-			// "Open jobs only" is enforced locally rather than via an
-			// unconfirmed TheirStack request parameter (see the API
-			// client) - a closed job is simply not stored at all.
+		$existing_post_id = Healthcare_Jobs_Directorist_Sync::find_existing_post_id( (string) $external_id );
+
+		if ( $is_closed && ! $existing_post_id && 'open' === Healthcare_Jobs_Settings::get( 'default_job_status', 'open' ) ) {
+			// "Open jobs only" governs new listings: don't create a fresh
+			// Directorist listing for a job that's already closed. A job we
+			// already imported and is now reported closed still needs to be
+			// synced below so its existing listing gets marked closed.
 			++$stats['jobs_skipped'];
 			return;
 		}
-
-		$company_data = array(
-			'external_company_id' => (string) self::extract( $raw, array( 'company.id', 'company_id' ) ),
-			'company_name'        => (string) self::extract( $raw, array( 'company.name', 'company_name' ) ),
-			'website'             => (string) self::extract( $raw, array( 'company.domain', 'company.website', 'company_domain' ) ),
-			'industry'            => (string) self::extract( $raw, array( 'company.industry', 'company_industry' ) ),
-			'description'         => (string) self::extract( $raw, array( 'company.description', 'company_description' ) ),
-			'location'            => (string) self::extract( $raw, array( 'company.location', 'company_location' ) ),
-			'country'             => (string) self::extract( $raw, array( 'company.country', 'company_country' ) ),
-			'logo_url'            => (string) self::extract( $raw, array( 'company.logo', 'company.logo_url', 'company_logo' ) ),
-		);
-
-		$company_id = Healthcare_Jobs_Companies::upsert( $company_data );
 
 		$remote_flag = self::extract( $raw, array( 'remote' ), null );
 		$remote_type = '';
@@ -284,20 +308,17 @@ class Healthcare_Jobs_Importer {
 			$salary_currency = 'USD';
 		}
 
-		$posted_at = self::parse_date( self::extract( $raw, array( 'posted_at', 'date_posted' ) ) );
-
 		$country_code = strtoupper( (string) self::extract( $raw, array( 'country_code', 'job_country_code' ) ) );
 
 		$job_data = array(
 			'external_job_id'  => (string) $external_id,
 			'source'           => 'theirstack',
-			'job_source_type'  => 'aggregated',
 			'source_url'       => esc_url_raw( (string) self::extract( $raw, array( 'final_url', 'url', 'job_url' ) ) ),
 			'title'            => sanitize_text_field( $title ),
-			'company_id'       => $company_id,
-			'company_name'     => sanitize_text_field( $company_data['company_name'] ),
-			'company_website'  => esc_url_raw( $company_data['website'] ),
-			'description'      => wp_kses_post( (string) self::extract( $raw, array( 'description', 'job_description' ) ) ),
+			'description'      => wp_kses_post( $description ),
+			'company_name'     => sanitize_text_field( (string) self::extract( $raw, array( 'company.name', 'company_name' ) ) ),
+			'company_website'  => esc_url_raw( (string) self::extract( $raw, array( 'company.domain', 'company.website', 'company_domain' ) ) ),
+			'company_logo_url' => esc_url_raw( (string) self::extract( $raw, array( 'company.logo', 'company.logo_url', 'company_logo' ) ) ),
 			'location'         => sanitize_text_field( (string) self::extract( $raw, array( 'location', 'job_location' ) ) ),
 			'city'             => sanitize_text_field( (string) self::extract( $raw, array( 'city' ) ) ),
 			'region'           => sanitize_text_field( (string) self::extract( $raw, array( 'region', 'state' ) ) ),
@@ -308,34 +329,41 @@ class Healthcare_Jobs_Importer {
 			'remote_type'      => $remote_type,
 			'salary_min'       => is_numeric( $salary_min ) ? (int) round( (float) $salary_min ) : null,
 			'salary_max'       => is_numeric( $salary_max ) ? (int) round( (float) $salary_max ) : null,
-			'salary_currency'  => $salary_currency ? sanitize_text_field( strtoupper( $salary_currency ) ) : null,
-			'category'         => sanitize_text_field( $category ),
-			'specialty'        => sanitize_text_field( (string) self::extract( $raw, array( 'specialty' ) ) ),
-			'seniority'        => sanitize_text_field( (string) self::extract( $raw, array( 'seniority' ) ) ),
-			'employer_type'    => Healthcare_Jobs_Companies::classify_employer_type( $company_data['company_name'], $company_data ),
-			'posted_at'        => $posted_at,
+			'salary_currency'  => $salary_currency ? strtoupper( sanitize_text_field( $salary_currency ) ) : null,
+			'posted_at'        => self::parse_date( self::extract( $raw, array( 'posted_at', 'date_posted' ) ) ),
 			'closing_date'     => self::parse_date( self::extract( $raw, array( 'closing_date', 'expires_at' ) ) ),
-			'is_closed'        => $is_closed ? 1 : 0,
-			'status'           => $is_closed ? Healthcare_Jobs_Jobs::STATUS_CLOSED : Healthcare_Jobs_Jobs::STATUS_ACTIVE,
-			'raw_data'         => wp_json_encode( $raw ),
+			'is_closed'        => $is_closed,
+			'raw_data'         => $raw,
 		);
 
 		/**
-		 * Filters the fully-mapped job record right before it is saved,
-		 * letting a developer correct field mapping if TheirStack changes
-		 * their schema without waiting for a plugin update.
+		 * Filters the fully-mapped job record right before it is synced to
+		 * Directorist, letting a developer correct field mapping if
+		 * TheirStack changes their schema without waiting for a plugin
+		 * update.
 		 *
 		 * @param array $job_data Mapped job fields.
 		 * @param array $raw      Original raw job payload.
 		 */
 		$job_data = apply_filters( 'healthcare_jobs_map_job', $job_data, $raw );
 
-		$result = Healthcare_Jobs_Jobs::upsert( $job_data );
+		$result = Healthcare_Jobs_Directorist_Sync::sync( $job_data, $classification['term_id'] );
 
-		Healthcare_Jobs_Companies::recalculate_active_jobs( $company_id );
+		if ( $result['error'] ) {
+			++$stats['jobs_failed'];
+			$errors[] = sprintf(
+				/* translators: 1: job title, 2: error message */
+				__( '[directorist-sync] Failed to save "%1$s": %2$s', 'healthcare-jobs' ),
+				$title,
+				$result['error']
+			);
+			return;
+		}
 
-		if ( $result['is_new'] ) {
-			++$stats['jobs_imported'];
+		if ( $is_closed ) {
+			++$stats['jobs_closed'];
+		} elseif ( $result['is_new'] ) {
+			++$stats['jobs_created'];
 		} else {
 			++$stats['jobs_updated'];
 		}
@@ -369,7 +397,7 @@ class Healthcare_Jobs_Importer {
 
 	/**
 	 * Some TheirStack fields (e.g. employment_statuses) may be an array;
-	 * this returns the first scalar value so it fits a single DB column.
+	 * this returns the first scalar value so it fits a single postmeta value.
 	 *
 	 * @param mixed $value Value that may be an array or scalar.
 	 * @return string

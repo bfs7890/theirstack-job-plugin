@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Healthcare Jobs Aggregator
  * Plugin URI:        https://example.com/healthcare-jobs
- * Description:       Imports UK healthcare vacancies from the TheirStack Jobs API into a local database and displays them as a searchable job board via the [healthcare_jobs] shortcode.
- * Version:           1.0.1
+ * Description:       Imports UK healthcare vacancies from the TheirStack Jobs API and synchronises them into Directorist as real job listings via the [healthcare_jobs] shortcode.
+ * Version:           2.0.0
  * Requires at least: 5.9
  * Requires PHP:      7.4
  * Author:            Healthcare Jobs Aggregator
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'HEALTHCARE_JOBS_VERSION', '1.0.1' );
+define( 'HEALTHCARE_JOBS_VERSION', '2.0.0' );
 define( 'HEALTHCARE_JOBS_PLUGIN_FILE', __FILE__ );
 define( 'HEALTHCARE_JOBS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'HEALTHCARE_JOBS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -38,11 +38,14 @@ function healthcare_jobs_load_includes() {
 		'includes/class-theirstack-api.php',
 		'includes/class-categories.php',
 		'includes/class-companies.php',
+		'includes/class-classifier.php',
+		'includes/class-directorist-mapper.php',
+		'includes/class-directorist-sync.php',
 		'includes/class-jobs.php',
 		'includes/class-search.php',
 		'includes/class-importer.php',
+		'includes/class-migration.php',
 		'includes/class-cron.php',
-		'includes/class-seo.php',
 		'includes/class-shortcode.php',
 		'includes/class-block.php',
 	);
@@ -74,8 +77,6 @@ function healthcare_jobs_activate() {
 	}
 
 	Healthcare_Jobs_Cron::reschedule();
-
-	update_option( 'healthcare_jobs_flush_rewrites', 1 );
 }
 register_activation_hook( __FILE__, 'healthcare_jobs_activate' );
 
@@ -108,11 +109,16 @@ add_action( 'plugins_loaded', 'healthcare_jobs_bootstrap' );
 /**
  * Registers everything that needs the full WordPress query/rewrite API.
  *
+ * Single job pages, canonical URLs, and JobPosting structured data are all
+ * Directorist's own responsibility now that imported jobs are real
+ * `at_biz_dir` listings - Directorist already serves its native permalink,
+ * single-listing template, and JobPosting schema markup for them, so this
+ * plugin no longer registers a competing rewrite/template/schema layer.
+ *
  * @return void
  */
 function healthcare_jobs_init() {
 	Healthcare_Jobs_Cron::init();
-	Healthcare_Jobs_SEO::register_rewrites();
 	Healthcare_Jobs_Shortcode::init();
 	Healthcare_Jobs_Block::init();
 
@@ -121,9 +127,3 @@ function healthcare_jobs_init() {
 	}
 }
 add_action( 'init', 'healthcare_jobs_init' );
-
-add_filter( 'query_vars', array( 'Healthcare_Jobs_SEO', 'register_query_vars' ) );
-add_filter( 'template_include', array( 'Healthcare_Jobs_SEO', 'maybe_load_job_template' ) );
-add_filter( 'wp_robots', array( 'Healthcare_Jobs_SEO', 'filter_robots' ) );
-add_action( 'wp_head', array( 'Healthcare_Jobs_SEO', 'output_canonical' ) );
-add_action( 'wp_head', array( 'Healthcare_Jobs_SEO', 'output_structured_data' ) );

@@ -7,25 +7,9 @@
 
 class Healthcare_Jobs_Categories_Test extends WP_UnitTestCase {
 
-	public function test_classify_title_matches_configured_title() {
-		$this->assertSame( 'Doctors', Healthcare_Jobs_Categories::classify_title( 'Consultant' ) );
-		$this->assertSame( 'Nursing', Healthcare_Jobs_Categories::classify_title( 'Registered Nurse' ) );
-		$this->assertSame( 'Pharmacy', Healthcare_Jobs_Categories::classify_title( 'Pharmacy Technician' ) );
-	}
-
-	public function test_classify_title_prefers_longest_match() {
-		// "Specialty Doctor" and "Doctor" are both configured under Doctors,
-		// so this mostly verifies no crash from overlapping titles, and
-		// that the more specific title still resolves to the same category.
-		$this->assertSame( 'Doctors', Healthcare_Jobs_Categories::classify_title( 'Specialty Doctor - Cardiology' ) );
-	}
-
-	public function test_classify_title_returns_empty_for_unrelated_title() {
-		$this->assertSame( '', Healthcare_Jobs_Categories::classify_title( 'Software Engineer' ) );
-	}
-
 	public function test_add_and_delete_category() {
-		$id = Healthcare_Jobs_Categories::add_category( 'Optometry' );
+		$term = wp_insert_term( 'Optometry', Healthcare_Jobs_Categories::TAXONOMY, array( 'slug' => 'optometry-test' ) );
+		$id   = Healthcare_Jobs_Categories::add_category( 'Optometry', $term['term_id'] );
 		$this->assertIsInt( $id );
 		$this->assertContains( 'Optometry', Healthcare_Jobs_Categories::get_names() );
 
@@ -53,5 +37,39 @@ class Healthcare_Jobs_Categories_Test extends WP_UnitTestCase {
 
 		Healthcare_Jobs_Categories::delete_title( $title_id );
 		$this->assertNotContains( 'Test Job Title', Healthcare_Jobs_Categories::get_all_titles() );
+	}
+
+	public function test_add_title_stores_ambiguous_context_and_exclusion_terms() {
+		$categories = Healthcare_Jobs_Categories::get_all();
+		$category   = $categories[0];
+
+		$title_id = Healthcare_Jobs_Categories::add_title(
+			$category['id'],
+			'Test Ambiguous Title',
+			true,
+			array( 'Clinical' ),
+			array( 'IT' )
+		);
+
+		$rules = Healthcare_Jobs_Categories::get_classification_rules();
+		$rule  = null;
+		foreach ( $rules as $candidate ) {
+			if ( 'Test Ambiguous Title' === $candidate['title'] ) {
+				$rule = $candidate;
+			}
+		}
+
+		$this->assertNotNull( $rule );
+		$this->assertTrue( $rule['is_ambiguous'] );
+		$this->assertContains( 'Clinical', $rule['context_terms'] );
+		$this->assertContains( 'IT', $rule['exclusion_terms'] );
+
+		Healthcare_Jobs_Categories::delete_title( $title_id );
+	}
+
+	public function test_get_directorist_terms_returns_real_taxonomy_terms() {
+		$terms = Healthcare_Jobs_Categories::get_directorist_terms();
+		$this->assertNotEmpty( $terms );
+		$this->assertInstanceOf( WP_Term::class, $terms[0] );
 	}
 }

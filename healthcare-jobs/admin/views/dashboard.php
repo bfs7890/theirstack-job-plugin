@@ -7,12 +7,31 @@
  * @var int        $company_count
  * @var array|null $last_import
  * @var int|false  $next_run
+ * @var int        $migration_pending
  */
 
 defined( 'ABSPATH' ) || exit;
 ?>
 <div class="wrap healthcare-jobs-wrap">
 	<h1><?php esc_html_e( 'Healthcare Jobs Dashboard', 'healthcare-jobs' ); ?></h1>
+
+	<?php if ( $migration_pending > 0 ) : ?>
+		<div class="notice notice-info">
+			<p>
+				<?php
+				printf(
+					/* translators: %d: number of jobs pending migration */
+					esc_html( _n( '%d job imported before this plugin version can be migrated into Directorist listings.', '%d jobs imported before this plugin version can be migrated into Directorist listings.', $migration_pending, 'healthcare-jobs' ) ),
+					(int) $migration_pending
+				);
+				?>
+			</p>
+			<p>
+				<button type="button" class="button button-primary" id="healthcare-jobs-run-migration"><?php esc_html_e( 'Migrate Existing Jobs to Directorist', 'healthcare-jobs' ); ?></button>
+			</p>
+			<div id="healthcare-jobs-migration-result"></div>
+		</div>
+	<?php endif; ?>
 
 	<?php if ( ! Healthcare_Jobs_Settings::has_api_key() ) : ?>
 		<div class="notice notice-warning">

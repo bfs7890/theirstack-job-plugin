@@ -30,6 +30,7 @@ class Healthcare_Jobs_Admin {
 
 		add_action( 'wp_ajax_healthcare_jobs_test_connection', array( __CLASS__, 'ajax_test_connection' ) );
 		add_action( 'wp_ajax_healthcare_jobs_run_import', array( __CLASS__, 'ajax_run_import' ) );
+		add_action( 'wp_ajax_healthcare_jobs_run_migration', array( __CLASS__, 'ajax_run_migration' ) );
 	}
 
 	/**
@@ -157,8 +158,9 @@ class Healthcare_Jobs_Admin {
 			return;
 		}
 		$stats        = Healthcare_Jobs_Jobs::get_stats();
-		$company_count = Healthcare_Jobs_Companies::count_all();
+		$company_count = $stats['company_count'];
 		$last_import  = Healthcare_Jobs_Logger::get_last_import();
+		$migration_pending = Healthcare_Jobs_Migration::count_pending();
 		$next_run     = Healthcare_Jobs_Cron::get_next_run();
 		include HEALTHCARE_JOBS_PLUGIN_DIR . 'admin/views/dashboard.php';
 	}
@@ -284,7 +286,7 @@ class Healthcare_Jobs_Admin {
 
 		switch ( $action ) {
 			case 'deactivate':
-				Healthcare_Jobs_Jobs::set_status( $id, Healthcare_Jobs_Jobs::STATUS_CLOSED );
+				Healthcare_Jobs_Jobs::set_status( $id, Healthcare_Jobs_Directorist_Mapper::get_closed_post_status() );
 				$message = __( 'Job deactivated.', 'healthcare-jobs' );
 				break;
 			case 'activate':
@@ -357,5 +359,21 @@ class Healthcare_Jobs_Admin {
 		}
 
 		wp_send_json_success( $result );
+	}
+
+	/**
+	 * One-time migration of pre-Directorist jobs (from an install upgraded
+	 * from before 2.0.0) into real Directorist listings.
+	 *
+	 * @return void
+	 */
+	public static function ajax_run_migration() {
+		self::ajax_guard();
+
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+
+		wp_send_json_success( Healthcare_Jobs_Migration::run() );
 	}
 }

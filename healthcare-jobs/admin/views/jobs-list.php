@@ -63,19 +63,19 @@ $base_url = admin_url( 'admin.php?page=healthcare-jobs-list' );
 					<td><?php echo esc_html( $job['location'] ); ?></td>
 					<td><?php echo esc_html( $job['category'] ); ?></td>
 					<td><?php echo $job['posted_at'] ? esc_html( get_date_from_gmt( $job['posted_at'], 'Y-m-d' ) ) : '—'; ?></td>
-					<td><span class="healthcare-jobs-badge healthcare-jobs-badge-<?php echo esc_attr( $job['status'] ); ?>"><?php echo esc_html( ucfirst( $job['status'] ) ); ?></span></td>
+					<td><span class="healthcare-jobs-badge healthcare-jobs-badge-<?php echo esc_attr( $job['status'] ); ?>"><?php echo esc_html( 'publish' === $job['status'] ? __( 'Active', 'healthcare-jobs' ) : ucfirst( $job['status'] ) ); ?></span></td>
 					<td><?php echo esc_html( ucfirst( $job['source'] ) ); ?></td>
 					<td class="healthcare-jobs-row-actions">
 						<?php if ( ! empty( $job['source_url'] ) ) : ?>
 							<a href="<?php echo esc_url( $job['source_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'View Source', 'healthcare-jobs' ); ?></a> |
 						<?php endif; ?>
-						<a href="<?php echo esc_url( Healthcare_Jobs_SEO::get_job_url( $job ) ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'View', 'healthcare-jobs' ); ?></a> |
+						<a href="<?php echo esc_url( $job['permalink'] ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'View', 'healthcare-jobs' ); ?></a> |
 
 						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;">
 							<input type="hidden" name="action" value="healthcare_jobs_job_action" />
 							<input type="hidden" name="job_id" value="<?php echo esc_attr( $job['id'] ); ?>" />
 							<?php wp_nonce_field( Healthcare_Jobs_Admin::NONCE_ACTION ); ?>
-							<?php if ( 'active' === $job['status'] ) : ?>
+							<?php if ( 'publish' === $job['status'] ) : ?>
 								<button type="submit" name="job_action" value="deactivate" class="button-link"><?php esc_html_e( 'Deactivate', 'healthcare-jobs' ); ?></button>
 							<?php else : ?>
 								<button type="submit" name="job_action" value="activate" class="button-link"><?php esc_html_e( 'Activate', 'healthcare-jobs' ); ?></button>

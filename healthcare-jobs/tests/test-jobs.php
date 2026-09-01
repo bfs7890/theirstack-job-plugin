@@ -1,123 +1,124 @@
 <?php
 /**
- * Tests for job upsert/dedupe, slugs, status changes, and expiration.
+ * Tests for the admin-facing Healthcare_Jobs_Jobs helpers: dashboard stats,
+ * the admin Jobs list query, and status/delete row actions - all reading
+ * and writing real Directorist (`at_biz_dir`) listings, since Directorist
+ * is the authoritative store for listing content.
  *
  * @package HealthcareJobs
  */
 
 class Healthcare_Jobs_Jobs_Test extends WP_UnitTestCase {
 
-	private function sample_job( $overrides = array() ) {
-		return array_merge(
-			array(
-				'external_job_id' => 'ts-1001',
-				'source'          => 'theirstack',
-				'job_source_type' => 'aggregated',
-				'title'           => 'Registered Nurse',
-				'company_name'    => 'Acme Health',
-				'category'        => 'Nursing',
-				'status'          => Healthcare_Jobs_Jobs::STATUS_ACTIVE,
-				'is_closed'       => 0,
-				'posted_at'       => current_time( 'mysql', true ),
-				'raw_data'        => wp_json_encode( array( 'id' => 'ts-1001' ) ),
-			),
-			$overrides
+	private function create_job_listing( $overrides = array() ) {
+		$job = array(
+			'external_job_id' => 'ts-' . wp_generate_password( 8, false ),
+			'source'          => 'theirstack',
+			'source_url'      => 'https://employer.example.com/apply',
+			'title'           => 'Registered Nurse',
+			'description'     => 'A nursing role.',
+			'company_name'    => 'Acme Health',
+			'company_website' => '',
+			'company_logo_url' => '',
+			'location'        => 'London, UK',
+			'city'            => 'London',
+			'region'          => '',
+			'postcode'        => '',
+			'country'         => 'United Kingdom',
+			'country_code'    => 'GB',
+			'employment_type' => 'full-time',
+			'remote_type'     => 'onsite',
+			'salary_min'      => 30000,
+			'salary_max'      => 35000,
+			'salary_currency' => 'GBP',
+			'posted_at'       => current_time( 'mysql', true ),
+			'closing_date'    => null,
+			'is_closed'       => false,
+			'raw_data'        => array(),
 		);
+		$job = array_merge( $job, $overrides );
+
+		$term = get_term_by( 'slug', 'nurses', Healthcare_Jobs_Categories::TAXONOMY );
+
+		$result = Healthcare_Jobs_Directorist_Sync::sync( $job, $term->term_id );
+		$this->assertNull( $result['error'], 'Fixture sync failed: ' . (string) $result['error'] );
+
+		return $result['post_id'];
 	}
 
-	public function test_upsert_inserts_new_job() {
-		$result = Healthcare_Jobs_Jobs::upsert( $this->sample_job() );
-		$this->assertTrue( $result['is_new'] );
+	public function test_get_stats_counts_published_and_closed_listings() {
+		$this->create_job_listing();
+		$this->create_job_listing( array( 'is_closed' => true ) );
 
-		$job = Healthcare_Jobs_Jobs::get( $result['id'] );
-		$this->assertSame( 'Registered Nurse', $job['title'] );
-		$this->assertNotEmpty( $job['slug'] );
+		$stats = Healthcare_Jobs_Jobs::get_stats();
+
+		$this->assertSame( 1, $stats['active_jobs'] );
+		$this->assertSame( 1, $stats['expired_jobs'] );
+		$this->assertSame( 2, $stats['total_jobs'] );
 	}
 
-	public function test_upsert_same_external_id_updates_not_duplicates() {
-		global $wpdb;
-		$table = Healthcare_Jobs_Database::jobs_table();
+	public function test_get_stats_counts_distinct_companies() {
+		$this->create_job_listing( array( 'company_name' => 'Shared Trust' ) );
+		$this->create_job_listing( array( 'company_name' => 'Shared Trust' ) );
+		$this->create_job_listing( array( 'company_name' => 'Other Trust' ) );
 
-		$first  = Healthcare_Jobs_Jobs::upsert( $this->sample_job() );
-		$second = Healthcare_Jobs_Jobs::upsert( $this->sample_job( array( 'title' => 'Registered Nurse (Updated)' ) ) );
-
-		$this->assertFalse( $second['is_new'] );
-		$this->assertSame( $first['id'], $second['id'] );
-
-		$count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE external_job_id = %s", 'ts-1001' ) );
-		$this->assertSame( 1, $count );
-
-		$job = Healthcare_Jobs_Jobs::get( $second['id'] );
-		$this->assertSame( 'Registered Nurse (Updated)', $job['title'] );
+		$stats = Healthcare_Jobs_Jobs::get_stats();
+		$this->assertSame( 2, $stats['company_count'] );
 	}
 
-	public function test_generate_unique_slug_avoids_collisions() {
-		Healthcare_Jobs_Jobs::upsert( $this->sample_job( array( 'external_job_id' => 'ts-a', 'title' => 'Staff Nurse', 'city' => 'London' ) ) );
-		$second = Healthcare_Jobs_Jobs::upsert( $this->sample_job( array( 'external_job_id' => 'ts-b', 'title' => 'Staff Nurse', 'city' => 'London' ) ) );
+	public function test_admin_query_finds_by_title_and_company() {
+		$this->create_job_listing( array( 'title' => 'Staff Nurse', 'company_name' => 'Findable Trust' ) );
+		$this->create_job_listing( array( 'title' => 'Pharmacist', 'company_name' => 'Other Trust' ) );
 
-		$job_a = Healthcare_Jobs_Jobs::find_by_external_id( 'ts-a' );
-		$job_b = Healthcare_Jobs_Jobs::get( $second['id'] );
-
-		$this->assertNotSame( $job_a['slug'], $job_b['slug'] );
+		$result = Healthcare_Jobs_Jobs::admin_query( array( 'search' => 'Findable' ) );
+		$this->assertSame( 1, $result['total'] );
+		$this->assertSame( 'Staff Nurse', $result['items'][0]['title'] );
 	}
 
-	public function test_set_status_deactivate_and_delete() {
-		$result = Healthcare_Jobs_Jobs::upsert( $this->sample_job() );
+	public function test_admin_query_filters_by_active_status() {
+		$this->create_job_listing( array( 'title' => 'Active One' ) );
+		$this->create_job_listing( array( 'title' => 'Closed One', 'is_closed' => true ) );
 
-		Healthcare_Jobs_Jobs::set_status( $result['id'], Healthcare_Jobs_Jobs::STATUS_CLOSED );
-		$job = Healthcare_Jobs_Jobs::get( $result['id'] );
-		$this->assertSame( 'closed', $job['status'] );
-		$this->assertEquals( 1, $job['is_closed'] );
+		$active = Healthcare_Jobs_Jobs::admin_query( array( 'status' => 'active' ) );
+		$titles = wp_list_pluck( $active['items'], 'title' );
 
-		Healthcare_Jobs_Jobs::delete( $result['id'] );
-		$this->assertNull( Healthcare_Jobs_Jobs::get( $result['id'] ) );
+		$this->assertContains( 'Active One', $titles );
+		$this->assertNotContains( 'Closed One', $titles );
 	}
 
-	public function test_expire_by_max_age() {
-		$old_job = Healthcare_Jobs_Jobs::upsert(
-			$this->sample_job(
-				array(
-					'external_job_id' => 'ts-old',
-					'posted_at'       => gmdate( 'Y-m-d H:i:s', time() - ( 40 * DAY_IN_SECONDS ) ),
-				)
-			)
-		);
-		$new_job = Healthcare_Jobs_Jobs::upsert(
-			$this->sample_job(
-				array(
-					'external_job_id' => 'ts-new',
-					'posted_at'       => current_time( 'mysql', true ),
-				)
-			)
-		);
+	public function test_admin_row_exposes_permalink_and_external_source() {
+		$post_id = $this->create_job_listing( array( 'title' => 'Row Test', 'source_url' => 'https://employer.example.com/apply/row-test' ) );
 
-		$expired_count = Healthcare_Jobs_Jobs::expire_by_max_age( 30 );
+		$result = Healthcare_Jobs_Jobs::admin_query( array( 'search' => 'Row Test' ) );
+		$row    = $result['items'][0];
 
-		$this->assertGreaterThanOrEqual( 1, $expired_count );
-		$this->assertSame( 'expired', Healthcare_Jobs_Jobs::get( $old_job['id'] )['status'] );
-		$this->assertSame( 'active', Healthcare_Jobs_Jobs::get( $new_job['id'] )['status'] );
+		$this->assertSame( $post_id, $row['id'] );
+		$this->assertNotEmpty( $row['permalink'] );
+		$this->assertSame( 'https://employer.example.com/apply/row-test', $row['source_url'] );
 	}
 
-	public function test_mark_closed_by_external_ids() {
-		$job = Healthcare_Jobs_Jobs::upsert( $this->sample_job( array( 'external_job_id' => 'ts-close-me' ) ) );
+	public function test_set_status_deactivate_and_activate() {
+		$post_id = $this->create_job_listing();
 
-		Healthcare_Jobs_Jobs::mark_closed_by_external_ids( array( 'ts-close-me' ) );
+		Healthcare_Jobs_Jobs::set_status( $post_id, Healthcare_Jobs_Directorist_Mapper::get_closed_post_status() );
+		$this->assertSame( Healthcare_Jobs_Directorist_Mapper::get_closed_post_status(), get_post_status( $post_id ) );
 
-		$this->assertSame( 'closed', Healthcare_Jobs_Jobs::get( $job['id'] )['status'] );
+		Healthcare_Jobs_Jobs::set_status( $post_id, Healthcare_Jobs_Jobs::STATUS_ACTIVE );
+		$this->assertSame( 'publish', get_post_status( $post_id ) );
 	}
 
-	public function test_expired_and_closed_jobs_are_never_hard_deleted_by_expiration() {
-		$job = Healthcare_Jobs_Jobs::upsert(
-			$this->sample_job(
-				array(
-					'external_job_id' => 'ts-history',
-					'posted_at'       => gmdate( 'Y-m-d H:i:s', time() - ( 400 * DAY_IN_SECONDS ) ),
-				)
-			)
-		);
+	public function test_set_status_rejects_unknown_status() {
+		$post_id = $this->create_job_listing();
 
-		Healthcare_Jobs_Jobs::expire_by_max_age( 30 );
+		Healthcare_Jobs_Jobs::set_status( $post_id, 'not-a-real-status' );
+		$this->assertSame( 'publish', get_post_status( $post_id ), 'An unrecognised status must be ignored, not applied.' );
+	}
 
-		$this->assertNotNull( Healthcare_Jobs_Jobs::get( $job['id'] ), 'Expiration must keep the historical record.' );
+	public function test_delete_removes_the_listing() {
+		$post_id = $this->create_job_listing();
+
+		Healthcare_Jobs_Jobs::delete( $post_id );
+
+		$this->assertNull( get_post( $post_id ) );
 	}
 }

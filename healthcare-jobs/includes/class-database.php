@@ -20,7 +20,7 @@ class Healthcare_Jobs_Database {
 	 *
 	 * @var string
 	 */
-	const DB_VERSION = '1.0.0';
+	const DB_VERSION = '2.0.0';
 
 	const OPTION_DB_VERSION = 'healthcare_jobs_db_version';
 
@@ -94,58 +94,36 @@ class Healthcare_Jobs_Database {
 
 		$sql = array();
 
-		// Jobs table.
+		// Jobs table: sync-tracking metadata only. Directorist (post type
+		// at_biz_dir) is the authoritative store for the actual listing
+		// content - this table exists purely so the importer can find an
+		// existing Directorist listing from a TheirStack external job ID in
+		// one indexed lookup, and to keep a raw-response audit trail.
+		//
+		// Pre-2.0.0 installs also have title/company_name/description/
+		// location/etc. columns from when this table WAS the authoritative
+		// store. dbDelta() never drops columns, so those remain physically
+		// present and populated on upgraded sites - deliberately left alone
+		// as the source data for the one-time Directorist migration
+		// (Healthcare_Jobs_Migration). New rows written after 2.0.0 no
+		// longer populate them.
 		$sql[] = "CREATE TABLE {$jobs_table} (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			external_job_id VARCHAR(191) NOT NULL DEFAULT '',
 			source VARCHAR(64) NOT NULL DEFAULT 'theirstack',
-			job_source_type VARCHAR(20) NOT NULL DEFAULT 'aggregated',
 			source_url TEXT NULL,
-			slug VARCHAR(220) NOT NULL DEFAULT '',
-			title VARCHAR(255) NOT NULL DEFAULT '',
-			company_id BIGINT UNSIGNED NULL,
-			company_name VARCHAR(255) NOT NULL DEFAULT '',
-			company_website VARCHAR(255) NULL,
-			description LONGTEXT NULL,
-			requirements LONGTEXT NULL,
-			benefits LONGTEXT NULL,
-			location VARCHAR(255) NULL,
-			city VARCHAR(120) NULL,
-			region VARCHAR(120) NULL,
-			postcode VARCHAR(20) NULL,
-			country VARCHAR(120) NULL,
-			country_code VARCHAR(2) NULL,
-			employment_type VARCHAR(60) NULL,
-			remote_type VARCHAR(30) NULL,
-			salary_min BIGINT NULL,
-			salary_max BIGINT NULL,
-			salary_currency VARCHAR(10) NULL,
-			category VARCHAR(120) NULL,
-			specialty VARCHAR(120) NULL,
-			seniority VARCHAR(60) NULL,
-			employer_type VARCHAR(60) NULL,
-			posted_at DATETIME NULL,
-			closing_date DATETIME NULL,
-			is_closed TINYINT(1) NOT NULL DEFAULT 0,
-			status VARCHAR(20) NOT NULL DEFAULT 'active',
-			first_seen_at DATETIME NOT NULL,
-			last_updated_at DATETIME NOT NULL,
+			directorist_post_id BIGINT UNSIGNED NULL,
+			category_term_id BIGINT UNSIGNED NULL,
+			sync_status VARCHAR(20) NOT NULL DEFAULT 'synced',
 			raw_data LONGTEXT NULL,
+			first_seen_at DATETIME NOT NULL,
+			last_synced_at DATETIME NOT NULL,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
 			PRIMARY KEY  (id),
 			UNIQUE KEY external_job_id (external_job_id),
-			UNIQUE KEY slug (slug),
-			KEY title (title(191)),
-			KEY company_name (company_name(191)),
-			KEY location (location(191)),
-			KEY country_code (country_code),
-			KEY category (category),
-			KEY posted_at (posted_at),
-			KEY status (status),
-			KEY company_id (company_id),
-			KEY job_source_type (job_source_type),
-			FULLTEXT KEY search_text (title,description,company_name)
+			KEY directorist_post_id (directorist_post_id),
+			KEY sync_status (sync_status)
 		) {$charset_collate};";
 
 		// Companies table.
@@ -188,24 +166,38 @@ class Healthcare_Jobs_Database {
 			KEY status (status)
 		) {$charset_collate};";
 
-		// Categories table (admin configurable).
+		// Categories table (admin configurable). directorist_term_id links
+		// each row to a real term in Directorist's own at_biz_dir-category
+		// taxonomy - Directorist owns the category list itself; this table
+		// only holds the classification rule grouping, never a competing
+		// category name/slug of our own once a mapping is set.
 		$sql[] = "CREATE TABLE {$categories_table} (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			name VARCHAR(120) NOT NULL,
 			slug VARCHAR(120) NOT NULL,
 			description TEXT NULL,
+			directorist_term_id BIGINT UNSIGNED NULL,
 			menu_order INT NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
 			PRIMARY KEY  (id),
-			UNIQUE KEY slug (slug)
+			UNIQUE KEY slug (slug),
+			KEY directorist_term_id (directorist_term_id)
 		) {$charset_collate};";
 
 		// Job titles table (admin configurable, mapped to a category).
+		// is_ambiguous + context_terms + exclusion_terms implement the
+		// multi-signal classifier: an ambiguous title (e.g. "Consultant",
+		// "GP") only matches when a context term is also present, and an
+		// exclusion term match vetoes the classification outright even when
+		// the title itself matched (e.g. "Consultant" + "IT").
 		$sql[] = "CREATE TABLE {$titles_table} (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			category_id BIGINT UNSIGNED NOT NULL,
 			title VARCHAR(191) NOT NULL,
+			is_ambiguous TINYINT(1) NOT NULL DEFAULT 0,
+			context_terms TEXT NULL,
+			exclusion_terms TEXT NULL,
 			created_at DATETIME NOT NULL,
 			PRIMARY KEY  (id),
 			KEY category_id (category_id),

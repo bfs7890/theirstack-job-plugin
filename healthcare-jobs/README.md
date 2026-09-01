@@ -2,18 +2,23 @@
 
 A WordPress plugin that imports UK healthcare vacancies from the
 [TheirStack Jobs API](https://theirstack.com/en/docs/api-reference/jobs/search_jobs_v1)
-into a local database and serves them as a fast, searchable job board via
-the `[healthcare_jobs]` shortcode (and an optional Gutenberg block).
+and synchronises them into **Directorist** as real listings, using the same
+listing type, categories, locations, and custom fields as the site's own
+"Add Listing" submission form.
+
+**Directorist is the authoritative job listing system.** TheirStack is only
+an external source of aggregated jobs. This plugin's importer synchronises
+TheirStack into Directorist; it never keeps a separate, competing copy of
+job content, and the public job board never queries TheirStack directly.
 
 Data flow:
 
 ```
-TheirStack API → WP-Cron / manual import → wp_healthcare_jobs (local DB)
-               → [healthcare_jobs] search page → single job page → Apply on original source
+TheirStack API → Importer → Classifier → Directorist Mapper → Directorist Sync
+              → Directorist listings (post type at_biz_dir)
+              → [healthcare_jobs] 3-column job board → Directorist single-listing page
+              → Apply Now → original source URL
 ```
-
-The plugin never queries TheirStack on a visitor request. All searching
-and filtering happens against the local database.
 
 ---
 
@@ -21,28 +26,38 @@ and filtering happens against the local database.
 
 - WordPress 5.9+
 - PHP 7.4+
-- MySQL 5.7+ / MariaDB 10.3+ (for `FULLTEXT` support on InnoDB, used by search)
+- MySQL 5.7+ / MariaDB 10.3+
+- **Directorist** (business directory / job board plugin), with a "Jobs"
+  listing type already configured — this plugin does not create a listing
+  type, categories, or locations of its own; it reuses whatever this site
+  already has.
 - A TheirStack API key (https://theirstack.com)
 
 ## Installation
 
-1. Copy the `healthcare-jobs` folder into `wp-content/plugins/`.
-2. Activate **Healthcare Jobs Aggregator** from **Plugins**.
-   - Activation creates five dedicated database tables (see below), grants
-     the `manage_healthcare_jobs` capability to the Administrator role, and
-     seeds the default healthcare categories/job titles.
-   - Nothing in the active theme or any other plugin is modified.
+1. Ensure Directorist is installed, active, and has a "Jobs" listing type
+   with the categories/locations/custom fields you want imported jobs to
+   use (see **Directorist Field Mapping** below).
+2. Copy the `healthcare-jobs` folder into `wp-content/plugins/` and
+   activate **Healthcare Jobs Aggregator**.
+   - Activation creates a small set of internal tables used only for
+     TheirStack↔Directorist sync bookkeeping and import history (see
+     **Database Structure**) — it never creates the listings themselves in
+     these tables. It also grants the `manage_healthcare_jobs` capability
+     to the Administrator role and links its classification rules to your
+     site's real Directorist categories.
+   - Nothing in Directorist's own data, the active theme, or any other
+     plugin is modified.
 3. Go to **Healthcare Jobs → Settings** and add your TheirStack API key.
 4. Click **Test API Connection** to confirm it works.
-5. Go to **Healthcare Jobs → Import Jobs** and click **Import Now**, or
+5. If this site already had jobs imported by an earlier version of this
+   plugin (before it wrote to Directorist), the Dashboard will show a
+   **Migrate Existing Jobs to Directorist** prompt — see **Migrating from
+   an earlier version** below.
+6. Go to **Healthcare Jobs → Import Jobs** and click **Import Now**, or
    wait for the next scheduled automatic import (every 6 hours by default).
-6. Add the shortcode `[healthcare_jobs]` to any page to display the job
+7. Add the shortcode `[healthcare_jobs]` to any page to display the job
    board, or use the **Healthcare Jobs Board** block in the block editor.
-
-Because URLs for individual jobs are handled by a custom rewrite rule, if
-job pages 404 after activation, visit **Settings → Permalinks** and click
-**Save Changes** once to flush rewrite rules (activation attempts this
-automatically, but some hosts require the manual nudge).
 
 ## TheirStack API Setup
 
@@ -54,26 +69,25 @@ automatically, but some hosts require the manual nudge).
      define( 'HEALTHCARE_JOBS_THEIRSTACK_API_KEY', 'sk-your-key-here' );
      ```
    - **Or** paste it into **Healthcare Jobs → Settings → TheirStack API
-     Key**. It is encrypted at rest (AES-256-CBC, keyed from your site's
-     own `AUTH_KEY`/`SECURE_AUTH_KEY` salts) before being saved to the
-     `wp_options` table, and the settings screen only ever displays a
-     masked version.
+     Key**. It is encrypted at rest before being saved to `wp_options`, and
+     the settings screen only ever displays a masked version.
 3. The API key is never sent to the browser: not in page HTML, not in any
    AJAX/REST response, and it is redacted from log messages and the
    import history's error list.
 
 The plugin calls `POST https://api.theirstack.com/v1/jobs/search` with a
-`Bearer` token, requesting only the fields it needs and paging through
-results up to your configured maximum per import (TheirStack bills one
-credit per job returned, so the import is bounded and predictable).
+`Bearer` token. **TheirStack's free plan caps results at 25 per page** —
+the importer never requests a page size above this
+(`Healthcare_Jobs_TheirStack_API::MAX_PAGE_SIZE`, filterable via
+`healthcare_jobs_theirstack_max_page_size` for a paid plan with a higher
+cap) and pages through multiple requests instead, up to your configured
+**Maximum Jobs Per Import**.
 
 **A note on field mapping:** TheirStack's job schema evolves. The importer
-maps fields defensively (trying several known key names, e.g. both
-`final_url` and `url`) and always stores the full raw API response in the
-job's `raw_data` column, so nothing is ever lost even if a field is
-renamed upstream. If you notice a field mapping in your account, use the
-`healthcare_jobs_map_job` filter to correct it without waiting on a plugin
-update:
+maps fields defensively (trying several known key names) and always stores
+the full raw API response, so nothing is lost even if a field is renamed
+upstream. Adjust mapping without a plugin update via the
+`healthcare_jobs_map_job` filter:
 
 ```php
 add_filter( 'healthcare_jobs_map_job', function ( $job_data, $raw ) {
@@ -82,35 +96,107 @@ add_filter( 'healthcare_jobs_map_job', function ( $job_data, $raw ) {
 }, 10, 2 );
 ```
 
-## Database Structure
+## Directorist Field Mapping
 
-All data lives in five dedicated tables (never in `wp_posts`), created and
-upgraded via `dbDelta()`:
+Every imported job is created/updated as a real `at_biz_dir` post under
+your site's configured "Jobs" listing type
+(`Healthcare_Jobs_Directorist_Mapper::get_job_listing_type_term_id()`,
+filterable via `healthcare_jobs_directorist_listing_type_id`), using the
+same field keys your Directory Builder submission form writes to:
+
+| TheirStack field | Directorist field | Notes |
+|---|---|---|
+| Job title | `post_title` | |
+| Description | `post_content` | |
+| Company name | `_custom-text` | Directorist's generic "Company/Organisation" Field Builder field on this install. |
+| Company website | `_custom-url` | |
+| City / region / location | `at_biz_dir-location` taxonomy | Resolved via keyword matching (`healthcare_jobs_directorist_location_map` filter) with a country-level fallback. |
+| Employment type | `_custom-select` | Mapped onto Directorist's fixed dropdown options. |
+| Remote/onsite/hybrid | `_dirjob_job_type` | The dJobs add-on's "Job Type" field. |
+| Salary | `_dirjob_salary` + `_custom-number` | Range string plus a single sortable number. |
+| Source/application URL | `_djobs-apply-now` | dJobs' external-apply-URL field — this is what "Apply Now" uses. |
+| — (deliberately blank) | `_dirjob_apply_form` | Directorist's *on-site* application form field. Never populated for aggregated jobs — this site must never appear to be the employer accepting applications. |
+| Healthcare category | `at_biz_dir-category` taxonomy | See **Classification** below. |
+| TheirStack job ID | `healthcare_jobs_theirstack_id` postmeta | The sync key — see below. |
+| Closing date | `_dirjob_deadline` + `_custom-date` | |
+| Postcode | `_zip` | |
+| Company logo | Featured image | Best-effort `media_sideload_image()`; never blocks the import if it fails. |
+
+## Deduplication & Sync Key
+
+The TheirStack job ID is the **only** dedupe key
+(`Healthcare_Jobs_Directorist_Mapper::get_external_id_meta_key()`, stored as
+the `healthcare_jobs_theirstack_id` postmeta on the Directorist post — never
+the job title). Before writing anything, the importer looks this postmeta
+up directly (`Healthcare_Jobs_Directorist_Sync::find_existing_post_id()`);
+if found, the existing listing is **updated**, never duplicated. Running
+the importer repeatedly is always safe.
+
+A small internal table (`wp_healthcare_jobs`, trimmed down from earlier
+plugin versions — see **Database Structure**) also keeps a copy of this
+mapping purely as a fast lookup index and audit trail; Directorist's own
+postmeta is the source of truth the sync actually checks.
+
+A job TheirStack reports as closed is **never deleted**. Its existing
+listing is updated to Directorist's own expiry status (the `expired`
+post status Directorist registers, or `draft` as a safe fallback if that
+status isn't available) via `Healthcare_Jobs_Directorist_Mapper::
+get_closed_post_status()`, so historical records and URLs are preserved
+and Directorist's own expiry/renewal/deletion rules apply uniformly to
+aggregated and directly-submitted listings alike.
+
+## Classification
+
+Jobs are classified into a Directorist category using
+`Healthcare_Jobs_Classifier`, a multi-signal matcher — **not** naive
+substring matching. This exists specifically to fix false positives like
+"IT Consultant", "Health & Safety Consultant", "Tile Sales Consultant", and
+"GP Reception Administrator" all being misclassified as doctor roles by a
+single-word match on "Consultant" or "GP":
+
+- **Unambiguous titles** (Dentist, Pharmacist, Registered Nurse, ...) match
+  on their own, as a whole word/phrase.
+- **Ambiguous titles** (currently: "Consultant") additionally require a
+  co-occurring **context term** — a clinical modifier such as "Cardiologist"
+  or "Physician" — to appear in the title or description before they count.
+  "Consultant" alone, with no clinical signal anywhere, is never classified.
+- **Exclusion terms** veto a match outright even when the title matched,
+  e.g. "Consultant"/"GP" + "IT", "Sales", "Recruitment", "Reception",
+  "Administrator", "Health & Safety", etc.
+- The **longest matching rule wins** when more than one matches (e.g. "GP
+  Reception Administrator" matches the literal Receptionists rule, not the
+  shorter, exclusion-vetoed "GP" rule).
+
+Rules are entirely data-driven (**Healthcare Jobs → Categories**), each
+linked to a real term in your site's `at_biz_dir-category` taxonomy —
+seeded once, on first activation, resolving against whatever categories
+this Directorist install actually has (a slug this site doesn't have is
+skipped, never invented). Add, edit, or remove rules without a code
+change; mark a new title "ambiguous" and give it context/exclusion terms
+from the Categories screen for the same protection on future edge cases.
+
+## Database Structure
 
 | Table | Purpose |
 |---|---|
-| `wp_healthcare_jobs` | One row per vacancy. Indexed on `external_job_id` (unique), `title`, `company_name`, `location`, `country_code`, `category`, `posted_at`, `status`, plus a `FULLTEXT` index on `title, description, company_name` for fast keyword search. |
-| `wp_healthcare_companies` | One row per employer. A job's `company_id` links here; a company can have many jobs. This is the foundation for the future employer directory. |
-| `wp_healthcare_import_log` | One row per import run: timing, counts (found/imported/updated/skipped/expired), trigger type, and a JSON list of errors. |
-| `wp_healthcare_categories` | Admin-configurable healthcare categories (Doctors, Nursing, etc.). |
-| `wp_healthcare_job_titles` | Admin-configurable job titles, each linked to a category. Drives both the TheirStack search filter and job classification. |
+| `wp_healthcare_jobs` | **Not** the authoritative job store. One row per TheirStack job purely for fast external-ID → Directorist post-ID lookup and a raw-response audit trail (`external_job_id`, `directorist_post_id`, `sync_status`, `raw_data`). Directorist's own `wp_posts`/`wp_postmeta` hold the actual listing content. |
+| `wp_healthcare_companies` | Unused by the current sync path (Directorist has no separate company entity on this install — the employer name lives on the listing itself, `_custom-text`). Left in place, untouched, in case a future phase needs it; not read from or written to by the importer. |
+| `wp_healthcare_import_log` | One row per import run: timing, counts, trigger type, and a JSON list of errors. |
+| `wp_healthcare_categories` | Admin-configurable classification rule groups, each linked to a real Directorist category term via `directorist_term_id`. |
+| `wp_healthcare_job_titles` | Job title classification rules (title, `is_ambiguous`, `context_terms`, `exclusion_terms`), each under a category. Also drives the TheirStack `job_title_or` search filter. |
 
-Notable columns beyond the original spec, added for URL routing and the
-future employer roadmap:
+### Migrating from an earlier version
 
-- `wp_healthcare_jobs.slug` — unique, URL-safe slug for the job's public page.
-- `wp_healthcare_jobs.job_source_type` — `aggregated` (TheirStack) or
-  `direct` (a future employer-submitted job), so direct postings can be
-  added later without a schema change.
-- `wp_healthcare_jobs.employer_type` / `wp_healthcare_companies.employer_type`
-  — NHS / Private Hospital / Dental / Pharmacy / Care Home / etc.
-  Classification is evidence-based (e.g. "NHS" appearing in the company
-  name), never assumed. Extend it via the
-  `healthcare_jobs_classify_employer_type` filter as your rules improve.
-
-Deduplication: jobs are matched on `external_job_id` before insert. A job
-that reappears in a later import updates the existing row (including
-`last_updated_at`) rather than creating a duplicate.
+Versions of this plugin before 2.0.0 used `wp_healthcare_jobs` as their own
+authoritative job store (title/description/company/location/etc. columns).
+`dbDelta()` never drops columns, so upgrading an existing install leaves
+that data physically in place — nothing is deleted automatically. If the
+Dashboard shows pending legacy jobs, click **Migrate Existing Jobs to
+Directorist**: `Healthcare_Jobs_Migration` re-classifies each one with the
+current classifier (never trusting an old, possibly wrong, stored category)
+and syncs it into Directorist exactly like a live import would. The legacy
+rows themselves are never deleted, so nothing is lost if you need to
+inspect the original data afterwards.
 
 ## Import Process
 
@@ -119,25 +205,24 @@ an **Import Now** button (AJAX; runs synchronously and reports a summary).
 Each import run:
 
 1. Takes a transient lock (`healthcare_jobs_import_lock`, 15 minutes) so a
-   manual click can never overlap a cron-triggered run, or vice versa.
+   manual click can never overlap a cron-triggered run.
 2. Builds the search filter from **Settings** (country, job age, status)
    plus every job title configured under **Healthcare Jobs → Categories**.
-3. Pages through TheirStack results (up to 500 per page) until either the
-   configured **Maximum Jobs Per Import** is reached or a short page
+3. Pages through TheirStack results (≤25 per page on the free plan) until
+   the configured **Maximum Jobs Per Import** is reached or a short page
    signals no more results.
-4. For each job: validates it has a title and ID, classifies it into a
-   healthcare category (skipping anything that matches none of your
-   configured titles), upserts the employer into
-   `wp_healthcare_companies`, then upserts the job itself.
-5. Marks jobs TheirStack reports as closed, then expires (never deletes)
-   jobs older than the configured maximum age or not re-seen in any recent
-   import.
-6. Writes a row to `wp_healthcare_import_log` with full counts and any
-   per-job errors (each error skips only that one job; the run continues).
+4. For each job: validates it has a title and ID, classifies it
+   (`Healthcare_Jobs_Classifier`), maps it onto Directorist's field schema
+   (`Healthcare_Jobs_Directorist_Mapper`), and creates or updates the
+   Directorist listing (`Healthcare_Jobs_Directorist_Sync`). A failure at
+   any one stage skips only that job — the run continues — and the error
+   message is tagged with the stage it failed at (`[validation]`,
+   `[classification]`, or `[directorist-sync]`).
+5. Writes a row to `wp_healthcare_import_log` with Found / Created /
+   Updated / Skipped / Closed / Failed counts and any per-job errors.
 
-A single bad record never aborts the run, and a failed API call never
-deletes existing jobs — errors are logged and the next scheduled import
-retries automatically.
+Expiration is Directorist's own responsibility from this point on (its
+`_expiry_date`/cron mechanism), not a separate process this plugin runs.
 
 ## WP-Cron
 
@@ -148,22 +233,7 @@ automatic imports entirely with the **Automatic Import Enabled** checkbox.
 
 WP-Cron only fires on incoming site traffic. For a low-traffic site,
 consider disabling `DISABLE_WP_CRON` and triggering `wp-cron.php` via a
-real system cron job for reliable timing — this is standard WordPress
-practice and outside the scope of this plugin.
-
-## Healthcare Categories & Job Title Configuration
-
-**Healthcare Jobs → Categories** manages both without touching code:
-categories (Doctors, Nursing, Allied Health, Pharmacy, Dental, Healthcare
-Management, seeded on first activation) and, within each, the job titles
-that both (a) get searched for on TheirStack and (b) classify an imported
-job into that category. Add, or remove entries freely; changes take effect
-on the next import.
-
-The plugin deliberately does **not** hard-code any commercial search term
-(e.g. "private clinic") into the import filter — categorisation of an
-employer as NHS, private, or another type is evidence-based (see
-`employer_type` above) and refined separately from what gets imported.
+real system cron job for reliable timing.
 
 ## Shortcode
 
@@ -175,78 +245,64 @@ employer as NHS, private, or another type is evidence-based (see
 
 | Attribute | Description |
 |---|---|
-| `category` | Pre-fills the category filter. |
+| `category` | Pre-fills the category filter (Directorist category name, slug, or term ID). |
 | `location` | Pre-fills the location filter. |
 | `limit` | Results per page (defaults to **Settings → Search Results Per Page**). |
 
 The same rendering is also available as the **Healthcare Jobs Board**
-block in the block editor (Settings sidebar exposes the same three
-options), for sites that prefer blocks over shortcodes.
-
-Search/filtering runs over AJAX (vanilla JavaScript, no framework) against
-the local database only — TheirStack is never called from a frontend
-request. Individual job pages are served at SEO-friendly URLs such as
-`/healthcare-jobs/consultant-cardiologist-london/` via a lightweight
-rewrite rule (no custom post type, so imported jobs never bloat `wp_posts`).
+block in the block editor. Search/filtering runs over AJAX against real
+Directorist listings — TheirStack is never called from a frontend request,
+and neither is `wp_healthcare_jobs`. The 3-column responsive grid
+(`public/css/frontend.css`) is presentation only; every job shown, and
+every single-job page linked to, is a genuine Directorist listing served
+by Directorist's own permalink and template — this plugin does not
+register a competing rewrite rule or template for individual jobs.
 
 ## SEO
 
-Each job page includes:
-
-- A canonical `<link>` tag.
-- `schema.org` `JobPosting` JSON-LD, built only from fields the plugin
-  actually has data for — salary, closing date, and other optional fields
-  are omitted rather than fabricated when TheirStack didn't provide them.
-- A `noindex` directive once a job is closed/expired (the historical
-  record stays in the database and in the admin, just out of search
-  engines).
-
-## Uninstalling
-
-Deactivating the plugin only stops cron and does not touch your data.
-Deleting it via **Plugins → Delete** also leaves all imported jobs,
-companies, and settings in place **unless** you have explicitly ticked
-**Settings → Delete Data on Uninstall**, in which case `uninstall.php`
-drops all five plugin tables and removes plugin options/capabilities.
+Single job pages are Directorist's own listing pages, so canonical URLs,
+`JobPosting` schema markup, and noindex-on-expiry are whatever Directorist
+itself is configured to do (this install has `enable_schema_markup`
+turned on) — this plugin does not duplicate that layer.
 
 ## Security
 
 - Every admin screen and AJAX action checks the `manage_healthcare_jobs`
-  capability (granted to Administrators on activation) — a dedicated
-  capability, not a hard-coded `current_user_can( 'manage_options' )`, so a
-  future non-admin role can be granted access without full site admin
-  rights.
-- Every state-changing form/AJAX request is nonce-protected
-  (`wp_nonce_field` / `check_ajax_referer`), CSRF-safe by default. The
-  read-only public job search AJAX endpoint intentionally has no nonce, so
-  it keeps working under full-page caching — it only ever reads from the
-  local database with sanitised, prepared queries.
-- All SQL uses `$wpdb->prepare()`; all output is escaped with the
-  appropriate `esc_html()` / `esc_url()` / `esc_attr()` / `wp_kses_post()`.
+  capability — a dedicated capability, not a hard-coded
+  `current_user_can( 'manage_options' )`.
+- Every state-changing form/AJAX request is nonce-protected. The read-only
+  public job search AJAX endpoint intentionally has no nonce, so it keeps
+  working under full-page caching — it only ever reads published
+  Directorist listings with sanitised, prepared queries.
+- All SQL uses `$wpdb->prepare()`; all output is escaped appropriately.
+  Directorist writes go through the same core functions
+  (`wp_insert_post()`/`wp_update_post()`/`update_post_meta()`/
+  `wp_set_object_terms()`) Directorist's own submission form ultimately
+  calls, and the `atbdp_listing_inserted`/`atbdp_listing_updated` hooks are
+  fired explicitly so Directorist's own internal caching/indexing runs.
 - The API key is encrypted at rest, never printed to any page, script,
-  REST response, or AJAX response, and is actively redacted from log
-  messages and stored import errors.
+  REST response, or AJAX response, and is actively redacted from logs.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | "No TheirStack API key configured" | Add a key in Settings, or define `HEALTHCARE_JOBS_THEIRSTACK_API_KEY` in `wp-config.php`. |
-| Test connection fails with HTTP 401 | The key is missing, malformed, or revoked. Check the masked diagnostic in the error message (`key present / length / ends with`) against what you expect, then regenerate the key at TheirStack → Settings → API Keys if needed. |
-| Test connection fails with HTTP 403 | The key itself is valid and was accepted — TheirStack is refusing this *specific request* (commonly: your plan doesn't include the Jobs Search endpoint, or the account is restricted). The error message includes TheirStack's own explanation text; check your plan/API access at TheirStack → Settings → API Keys rather than re-entering the key. |
-| Test connection fails with HTTP 402 | Account is out of credits or has a billing issue — check TheirStack → Settings → Billing. |
-| A request fails with HTTP 422 | TheirStack rejected the request body itself (not the key) — the error message includes TheirStack's validation detail. |
-| **Test Connection succeeds but Import Now (or a scheduled import) later fails with 401/403** | Both use the exact same request code (`Healthcare_Jobs_TheirStack_API::search_jobs()`), so this means the *stored* key value changed or failed to decrypt between the two calls, not that they authenticate differently. Two causes were found and fixed: (1) saving Settings for any other reason (e.g. changing import frequency) without retyping the API key used to silently blank it out — the field is now only cleared via the explicit **Remove the stored API key** checkbox; (2) the encryption key used to be derived from `AUTH_KEY`/`SECURE_AUTH_KEY`, which can legitimately differ across servers behind a load balancer or get rotated, silently breaking decryption on whichever request didn't originally encrypt it — it's now derived from a dedicated secret stored once in the database, identical on every server/cron run, with a one-time automatic migration for existing installs. The key is also `trim()`med on every read (never otherwise modified), and the diagnostic warns (without printing the key) if it still contains a stray quote character, whitespace, or control character — a common paste mistake. If you hit this on an older copy of the plugin, update it and re-enter the key once in Settings to be safe. |
-| Import Now shows "Authentication/API request failed" instead of job counts | This is intentional: an auth/authorization/billing/rate-limit failure happens before any job search could run, so it is never shown as an indistinguishable "Found: 0" — the Import History row's `status` is `failed` and its logged error names the exact HTTP status and TheirStack's own response text. |
-| Import runs but imports 0 jobs (with `status: success`, no errors) | Check **Categories** has job titles configured; TheirStack's title match is an OR filter, so results outside your configured titles are intentionally skipped and logged. If the *first* page of a run returns zero jobs with a 200 response, Import History also logs the exact request parameters sent and TheirStack's reported `total_results`, to distinguish "genuinely nothing matched" from a rejected request. |
-| "An import is already running" | A previous run is still inside its 15-minute lock window, or crashed without releasing it (rare) — wait, or clear the `healthcare_jobs_import_lock` transient. |
-| Job pages 404 | Visit **Settings → Permalinks** and click Save to flush rewrite rules. |
-| Search feels slow at scale | Confirm the `wp_healthcare_jobs` table has its `FULLTEXT` index (recreated automatically via `dbDelta` on any plugin update); avoid disabling MySQL's InnoDB `FULLTEXT` support. |
+| Test connection fails with HTTP 401/403/402/422 | See the detailed diagnostic in the error message — it includes TheirStack's own response text and distinguishes an invalid key (401) from a plan/access restriction (403) from a billing issue (402) from a rejected request body (422). |
+| Import Now shows "Authentication/API request failed" instead of job counts | Intentional: an auth/billing/rate-limit failure happens before any search could run, so it's never shown as an indistinguishable "Found: 0". |
+| A job doesn't appear on the board | Check Import History for a `[classification]` skip (title didn't match any configured healthcare title) or a `[directorist-sync]` failure for that job specifically — one bad job never blocks the rest of the run. |
+| Dashboard shows "jobs pending migration" | This site was upgraded from a pre-2.0.0 version of this plugin. Click **Migrate Existing Jobs to Directorist** on the Dashboard. |
+| "An import is already running" | A previous run is still inside its 15-minute lock window, or crashed without releasing it — wait, or clear the `healthcare_jobs_import_lock` transient. |
+| A job title is being classified wrong | Add/edit a rule under **Healthcare Jobs → Categories**: mark it "ambiguous" and give it context terms (must also appear) and/or exclusion terms (must never appear) rather than relying on a single keyword. |
 
 ## Testing
 
 PHPUnit tests live in `tests/` and follow the standard WordPress plugin
-test scaffold (`WP_UnitTestCase`). To run them locally:
+test scaffold (`WP_UnitTestCase`). Since Directorist itself isn't installed
+in the test environment, `tests/includes/directorist-stub.php` registers
+just enough of its schema (the `at_biz_dir` post type and its three
+taxonomies, plus representative terms) for the mapper/sync/classifier to
+be exercised end-to-end. To run them locally:
 
 ```bash
 composer install
@@ -254,33 +310,15 @@ bash bin/install-wp-tests.sh healthcare_jobs_test root '' localhost latest
 vendor/bin/phpunit
 ```
 
-Coverage includes: API authentication and failure handling (401/429/500,
-malformed JSON, network errors), the "Test API Connection" flow,
-successful import + pagination, duplicate detection/updates, company
-matching across multiple jobs, invalid-record skipping, job expiration
-(by age and by disappearance), search and every filter combination,
-SQL-injection-safe search input, cron scheduling, capability/nonce
-enforcement on every admin and AJAX handler, and API-key secrecy across
-logs, errors, and AJAX responses.
-
-## Future Employer Functionality
-
-The schema is deliberately ready for the next phase without requiring a
-rebuild:
-
-- `wp_healthcare_jobs.job_source_type` (`aggregated` | `direct`) lets
-  employer-submitted jobs coexist with TheirStack imports in the same
-  table, search, and templates.
-- `wp_healthcare_companies` already supports one company having many jobs,
-  active-job counts, logo/industry/location — ready to back employer
-  profile pages and a business directory.
-- `employer_type` on both jobs and companies is ready for filtering a
-  directory by NHS / Private Hospital / Private Clinic / Dental /
-  Pharmacy / Care Home / Care Provider / Healthcare Technology / Medical
-  Recruitment / Other Healthcare, refined over time via the
-  `healthcare_jobs_classify_employer_type` filter rather than a schema
-  migration.
-
-Not built yet, intentionally: employer registration/login/dashboard, paid
-job packages, featured jobs, and lead generation. These are the next
-phase, layered on top of this schema.
+Coverage includes: API authentication and failure handling, the "Test API
+Connection" flow, successful import + pagination + Directorist listing
+creation, duplicate detection/updates by external ID, the specific
+classification false-positives this plugin was built to fix (IT
+Consultant, Health & Safety Consultant, Tile Sales Consultant, GP
+Reception Administrator) alongside the genuine healthcare titles that must
+still classify correctly (GP, Consultant Physician, Specialty Doctor,
+Registered Nurse, Practice Nurse, Qualified Dental Nurse, Pharmacist),
+legacy-data migration, frontend search/filter/pagination against real
+Directorist listings, SQL-injection-safe search input, cron scheduling,
+capability/nonce enforcement, and API-key secrecy across logs, errors, and
+AJAX/search responses.

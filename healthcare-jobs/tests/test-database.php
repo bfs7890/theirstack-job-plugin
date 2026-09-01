@@ -30,12 +30,22 @@ class Healthcare_Jobs_Database_Test extends WP_UnitTestCase {
 	public function test_default_categories_are_seeded_once() {
 		$categories = Healthcare_Jobs_Categories::get_names();
 
+		// Each seeded row is resolved against a real term in Directorist's
+		// own at_biz_dir-category taxonomy (see the test Directorist stub) -
+		// a slug this install doesn't have is skipped rather than invented.
 		$this->assertContains( 'Doctors', $categories );
-		$this->assertContains( 'Nursing', $categories );
-		$this->assertContains( 'Allied Health', $categories );
-		$this->assertContains( 'Pharmacy', $categories );
-		$this->assertContains( 'Dental', $categories );
-		$this->assertContains( 'Healthcare Management', $categories );
+		$this->assertContains( 'Nurses', $categories );
+		$this->assertContains( 'Pharmacists', $categories );
+		$this->assertContains( 'Dentists', $categories );
+		$this->assertContains( 'Receptionists', $categories );
+	}
+
+	public function test_seeded_categories_link_to_real_directorist_terms() {
+		$categories = Healthcare_Jobs_Categories::get_all();
+		foreach ( $categories as $category ) {
+			$this->assertNotEmpty( $category['directorist_term_id'], "Category '{$category['name']}' must be linked to a real Directorist term." );
+			$this->assertInstanceOf( WP_Term::class, get_term( $category['directorist_term_id'], Healthcare_Jobs_Categories::TAXONOMY ) );
+		}
 	}
 
 	public function test_external_job_id_is_unique() {
