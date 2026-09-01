@@ -10,6 +10,15 @@
 
 class Healthcare_Jobs_Classifier_Test extends WP_UnitTestCase {
 
+	public function setUp(): void {
+		parent::setUp();
+		// The classifier caches rules in a static var for the life of the
+		// PHP process, but PHPUnit runs every test in one process - clear it
+		// so a rule change made by an earlier test's DB fixture (rolled back
+		// by WP_UnitTestCase, but not un-cached) never leaks into this test.
+		Healthcare_Jobs_Classifier::clear_cache();
+	}
+
 	private function category_name_for( $title, $description = '' ) {
 		$result = Healthcare_Jobs_Classifier::classify( $title, $description );
 		return $result['category_name'];
@@ -71,6 +80,14 @@ class Healthcare_Jobs_Classifier_Test extends WP_UnitTestCase {
 			array( 'Practice Nurse', 'Nurses' ),
 			array( 'Qualified Dental Nurse', 'Dental Nurses' ),
 			array( 'Pharmacist', 'Pharmacists' ),
+			// Real-world titles that use the specialty-noun form ("in
+			// Obstetrics and Gynaecology") rather than the person-role form
+			// ("Obstetrician") - a live import skipped this exact title
+			// before the clinical_modifiers context list covered both forms.
+			array( 'Consultant in Obstetrics and Gynaecology', 'Consultants' ),
+			array( 'Consultant in Paediatrics', 'Consultants' ),
+			array( 'Parkinsons Clinical Nurse Specialist', 'Nurses' ),
+			array( 'Dental Hygienist/Therapist', 'Dental Hygienists' ),
 		);
 	}
 

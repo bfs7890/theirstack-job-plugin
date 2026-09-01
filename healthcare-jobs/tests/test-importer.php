@@ -12,6 +12,7 @@ class Healthcare_Jobs_Importer_Test extends WP_UnitTestCase {
 
 	public function setUp(): void {
 		parent::setUp();
+		Healthcare_Jobs_Classifier::clear_cache();
 		Healthcare_Jobs_Settings::save(
 			array(
 				'api_key'              => 'sk-test-key',

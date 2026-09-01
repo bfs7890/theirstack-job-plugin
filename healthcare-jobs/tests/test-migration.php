@@ -10,6 +10,11 @@
 
 class Healthcare_Jobs_Migration_Test extends WP_UnitTestCase {
 
+	public function setUp(): void {
+		parent::setUp();
+		Healthcare_Jobs_Classifier::clear_cache();
+	}
+
 	/**
 	 * Adds the pre-2.0.0 legacy columns to the (now sync-tracking-only)
 	 * jobs table, simulating a site upgraded from an earlier version where

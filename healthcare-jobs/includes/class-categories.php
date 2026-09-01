@@ -48,16 +48,39 @@ class Healthcare_Jobs_Categories {
 			'Administrator', 'Admin',
 		);
 
+		// Both the personal-role form ("Cardiologist") and the specialty/
+		// subject-noun form ("Cardiology") are included, because real UK job
+		// titles use either pattern interchangeably ("Consultant
+		// Cardiologist" vs "Consultant in Cardiology" / "Consultant
+		// Cardiology") - matching only the person-role form missed titles
+		// like "Consultant in Obstetrics and Gynaecology" entirely.
 		$clinical_modifiers = array(
-			'Physician', 'Surgeon', 'Cardiologist', 'Psychiatrist',
-			'Paediatrician', 'Pediatrician', 'Radiologist', 'Anaesthetist',
-			'Anesthetist', 'Oncologist', 'Dermatologist', 'Obstetrician',
-			'Gynaecologist', 'Gynecologist', 'Ophthalmologist', 'Orthopaedic',
-			'Orthopedic', 'Neurologist', 'Endocrinologist', 'Urologist',
-			'Rheumatologist', 'Haematologist', 'Hematologist', 'Nephrologist',
-			'Gastroenterologist', 'Immunologist', 'Pathologist', 'Geriatrician',
-			'Rheumatology', 'Oncology', 'A&E', 'Emergency Medicine', 'ICU',
-			'Anaesthesia', 'Anesthesia',
+			'Physician', 'Surgeon', 'Surgery', 'Medicine',
+			'Cardiologist', 'Cardiology',
+			'Psychiatrist', 'Psychiatry',
+			'Paediatrician', 'Pediatrician', 'Paediatrics', 'Pediatrics',
+			'Radiologist', 'Radiology',
+			'Anaesthetist', 'Anesthetist', 'Anaesthesia', 'Anesthesia', 'Anaesthetics', 'Anesthetics',
+			'Oncologist', 'Oncology', 'Oncological',
+			'Dermatologist', 'Dermatology',
+			'Obstetrician', 'Obstetrics',
+			'Gynaecologist', 'Gynecologist', 'Gynaecology', 'Gynecology',
+			'Ophthalmologist', 'Ophthalmology',
+			'Orthopaedic', 'Orthopedic', 'Orthopaedics', 'Orthopedics',
+			'Neurologist', 'Neurology',
+			'Endocrinologist', 'Endocrinology',
+			'Urologist', 'Urology',
+			'Rheumatologist', 'Rheumatology',
+			'Haematologist', 'Hematologist', 'Haematology', 'Hematology',
+			'Nephrologist', 'Nephrology',
+			'Gastroenterologist', 'Gastroenterology',
+			'Immunologist', 'Immunology',
+			'Pathologist', 'Pathology',
+			'Geriatrician', 'Geriatrics', 'Geriatric Medicine', 'Elderly Care',
+			'Respiratory', 'Vascular', 'Colorectal', 'Trauma', 'Renal',
+			'Palliative', 'Palliative Care', 'Intensive Care', 'Critical Care',
+			'Stroke', 'Maxillofacial', 'ENT', 'Ear Nose and Throat',
+			'A&E', 'Emergency Medicine', 'ICU', 'Acute Medicine',
 		);
 
 		return array(

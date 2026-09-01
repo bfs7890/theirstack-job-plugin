@@ -217,22 +217,52 @@ class Healthcare_Jobs_Database {
 	 * Checks the stored schema version and re-runs install() if it is stale.
 	 * Hooked to `plugins_loaded` so upgrades apply without reactivation.
 	 *
+	 * maybe_seed_defaults() is also called unconditionally here, not only
+	 * from inside install() - a site that already completed the 2.0.0
+	 * schema upgrade has OPTION_DB_VERSION current and will never call
+	 * install() again, but still needs its classification rules backfilled
+	 * with real Directorist term links (see maybe_seed_defaults() for why).
+	 * The check itself is a single cheap indexed lookup, safe on every
+	 * request, and self-disables permanently once it finds a linked row.
+	 *
 	 * @return void
 	 */
 	public static function maybe_upgrade() {
 		if ( get_option( self::OPTION_DB_VERSION ) !== self::DB_VERSION ) {
 			self::install();
 		}
+
+		self::maybe_seed_defaults();
 	}
 
 	/**
-	 * Seeds default healthcare categories and job titles on first install
-	 * only. Never overwrites data an administrator has already edited.
+	 * Seeds default healthcare categories and job titles.
+	 *
+	 * Gated on whether any category row is actually linked to a real
+	 * Directorist term (`directorist_term_id`), not on the old pre-2.0.0
+	 * "has this ever run" boolean flag. A site that activated an earlier
+	 * version of this plugin already has `healthcare_jobs_defaults_seeded`
+	 * set, but its category rows predate Directorist integration entirely
+	 * and have no `directorist_term_id` - if seeding stayed gated on that
+	 * old flag, Healthcare_Jobs_Categories::get_classification_rules()
+	 * (which only returns rules with a real linked term) would return
+	 * nothing on upgrade, and the classifier would skip every job as
+	 * unclassified. Healthcare_Jobs_Categories::seed_defaults() is itself
+	 * idempotent (skips any category/title that already exists), so it is
+	 * always safe to call again here; once real linked categories exist,
+	 * this check is permanently false and never reseeds again.
 	 *
 	 * @return void
 	 */
-	private static function maybe_seed_defaults() {
-		if ( get_option( 'healthcare_jobs_defaults_seeded' ) ) {
+	public static function maybe_seed_defaults() {
+		global $wpdb;
+		$cat_table = self::categories_table();
+
+		$has_linked_category = (bool) $wpdb->get_var(
+			"SELECT id FROM {$cat_table} WHERE directorist_term_id IS NOT NULL LIMIT 1" // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		);
+
+		if ( $has_linked_category ) {
 			return;
 		}
 
