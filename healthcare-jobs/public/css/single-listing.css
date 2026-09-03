@@ -1,0 +1,30 @@
+/* "Company Website" button injected next to Directorist's Bookmark/Share
+   buttons on a single Jobs listing page - see class-single-listing.php and
+   public/js/single-listing.js. */
+.healthcare-jobs-website-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 16px;
+	background: #f0f0f1;
+	color: #00966d;
+	border-radius: 4px;
+	font-size: 14px;
+	font-weight: 600;
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.healthcare-jobs-website-btn:hover {
+	background: #e0e0e1;
+	color: #00754f;
+}
+
+.healthcare-jobs-website-btn-icon {
+	flex: none;
+}
+
+.healthcare-jobs-website-btn:focus-visible {
+	outline: 2px solid #2271b1;
+	outline-offset: 2px;
+}
