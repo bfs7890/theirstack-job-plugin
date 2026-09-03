@@ -22,6 +22,15 @@ class Healthcare_Jobs_Security_Test extends WP_UnitTestCase {
 		Healthcare_Jobs_Admin::ajax_test_connection();
 	}
 
+	public function test_ajax_test_adzuna_connection_rejects_unprivileged_user() {
+		$subscriber = self::factory()->user->create( array( 'role' => 'subscriber' ) );
+		wp_set_current_user( $subscriber );
+		$_REQUEST['nonce'] = wp_create_nonce( Healthcare_Jobs_Admin::NONCE_ACTION );
+
+		$this->expectException( WPDieException::class );
+		Healthcare_Jobs_Admin::ajax_test_adzuna_connection();
+	}
+
 	public function test_ajax_run_import_rejects_unprivileged_user() {
 		$subscriber = self::factory()->user->create( array( 'role' => 'subscriber' ) );
 		wp_set_current_user( $subscriber );
@@ -113,6 +122,29 @@ class Healthcare_Jobs_Security_Test extends WP_UnitTestCase {
 		Healthcare_Jobs_Settings::save( array( 'api_key' => 'sk-redact-me' ) );
 		$redacted = Healthcare_Jobs_Logger::redact( 'Request failed using key sk-redact-me in headers' );
 		$this->assertStringNotContainsString( 'sk-redact-me', $redacted );
+	}
+
+	public function test_logger_redacts_adzuna_app_key_from_debug_output() {
+		Healthcare_Jobs_Settings::save( array( 'adzuna_app_key' => 'app-key-redact-me' ) );
+		$redacted = Healthcare_Jobs_Logger::redact( 'Adzuna request failed using key app-key-redact-me in query string' );
+		$this->assertStringNotContainsString( 'app-key-redact-me', $redacted );
+	}
+
+	public function test_adzuna_error_messages_never_contain_the_app_key() {
+		Healthcare_Jobs_Settings::save( array( 'adzuna_app_id' => 'app-id-123', 'adzuna_app_key' => 'app-key-secret-value' ) );
+
+		$callback = function () {
+			return array( 'response' => array( 'code' => 500 ), 'body' => '{"display":"Server error"}' );
+		};
+		add_filter( 'pre_http_request', $callback );
+
+		$api    = new Healthcare_Jobs_Adzuna_API();
+		$result = $api->search_jobs( array( 'country_code' => 'GB', 'page' => 1 ) );
+
+		remove_filter( 'pre_http_request', $callback );
+
+		$this->assertWPError( $result );
+		$this->assertStringNotContainsString( 'app-key-secret-value', $result->get_error_message() );
 	}
 
 	public function test_healthcare_jobs_capability_is_a_dedicated_capability() {

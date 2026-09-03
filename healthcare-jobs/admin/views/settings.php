@@ -10,6 +10,9 @@ defined( 'ABSPATH' ) || exit;
 
 $key_from_constant = Healthcare_Jobs_Settings::api_key_is_from_constant();
 $masked_key         = Healthcare_Jobs_Settings::get_masked_api_key();
+
+$adzuna_key_from_constant = Healthcare_Jobs_Settings::adzuna_app_key_is_from_constant();
+$masked_adzuna_key        = Healthcare_Jobs_Settings::get_masked_adzuna_app_key();
 ?>
 <div class="wrap healthcare-jobs-wrap">
 	<h1><?php esc_html_e( 'Healthcare Jobs Settings', 'healthcare-jobs' ); ?></h1>
@@ -41,6 +44,49 @@ $masked_key         = Healthcare_Jobs_Settings::get_masked_api_key();
 					<p>
 						<button type="button" class="button" id="healthcare-jobs-test-connection"><?php esc_html_e( 'Test API Connection', 'healthcare-jobs' ); ?></button>
 						<span id="healthcare-jobs-test-result" class="healthcare-jobs-test-result"></span>
+					</p>
+				</td>
+			</tr>
+		</table>
+
+		<h2><?php esc_html_e( 'Adzuna API', 'healthcare-jobs' ); ?></h2>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Enable Adzuna Import', 'healthcare-jobs' ); ?></th>
+				<td>
+					<label><input type="checkbox" name="adzuna_import_enabled" value="1" <?php checked( $settings['adzuna_import_enabled'], 1 ); ?> /> <?php esc_html_e( 'Also import jobs from Adzuna alongside TheirStack, using the same categories, country, and job age settings below', 'healthcare-jobs' ); ?></label>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="adzuna_app_id"><?php esc_html_e( 'Adzuna App ID', 'healthcare-jobs' ); ?></label></th>
+				<td>
+					<input type="text" id="adzuna_app_id" name="adzuna_app_id" class="regular-text" autocomplete="off" value="<?php echo esc_attr( $settings['adzuna_app_id'] ); ?>" />
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="adzuna_app_key"><?php esc_html_e( 'Adzuna App Key', 'healthcare-jobs' ); ?></label></th>
+				<td>
+					<?php if ( $adzuna_key_from_constant ) : ?>
+						<p>
+							<code><?php esc_html_e( 'Defined via HEALTHCARE_JOBS_ADZUNA_APP_KEY in wp-config.php', 'healthcare-jobs' ); ?></code>
+						</p>
+						<p class="description"><?php esc_html_e( 'Remove the constant from wp-config.php to manage the key from this screen instead.', 'healthcare-jobs' ); ?></p>
+					<?php else : ?>
+						<input type="password" id="adzuna_app_key" name="adzuna_app_key" class="regular-text" autocomplete="off"
+							placeholder="<?php echo esc_attr( $masked_adzuna_key ? $masked_adzuna_key : __( 'Enter your Adzuna App Key', 'healthcare-jobs' ) ); ?>" />
+						<p class="description">
+							<?php esc_html_e( 'Stored encrypted in the database, same as the TheirStack key above. Leave blank to keep the current key unchanged.', 'healthcare-jobs' ); ?>
+						</p>
+						<?php if ( $masked_adzuna_key ) : ?>
+							<p><label><input type="checkbox" name="clear_adzuna_app_key" value="1" /> <?php esc_html_e( 'Remove the stored App Key (leave unchecked to keep it)', 'healthcare-jobs' ); ?></label></p>
+						<?php endif; ?>
+					<?php endif; ?>
+					<p>
+						<button type="button" class="button" id="healthcare-jobs-test-adzuna-connection"><?php esc_html_e( 'Test Adzuna Connection', 'healthcare-jobs' ); ?></button>
+						<span id="healthcare-jobs-test-adzuna-result" class="healthcare-jobs-test-result"></span>
+					</p>
+					<p class="description">
+						<?php esc_html_e( 'Get an App ID and App Key from your Adzuna developer account. Note: Adzuna only covers a fixed set of countries (matched against Default Country below), and its job data does not include a company website, so the Company Website button will not appear on Adzuna-sourced listings.', 'healthcare-jobs' ); ?>
 					</p>
 				</td>
 			</tr>

@@ -46,6 +46,9 @@ class Healthcare_Jobs_Settings {
 			'job_titles'           => array(),
 			'results_per_page'     => 20,
 			'delete_data_on_uninstall' => 0,
+			'adzuna_app_id'            => '',
+			'adzuna_app_key_encrypted' => '',
+			'adzuna_import_enabled'    => 0,
 		);
 	}
 
@@ -114,6 +117,24 @@ class Healthcare_Jobs_Settings {
 		}
 		if ( ! empty( $input['clear_api_key'] ) ) {
 			$sanitised['api_key_encrypted'] = '';
+		}
+
+		if ( isset( $input['adzuna_app_id'] ) ) {
+			$sanitised['adzuna_app_id'] = sanitize_text_field( trim( (string) $input['adzuna_app_id'] ) );
+		}
+
+		$sanitised['adzuna_import_enabled'] = ! empty( $input['adzuna_import_enabled'] ) ? 1 : 0;
+
+		// Adzuna App Key: same "blank submission never clears it, only the
+		// explicit checkbox does" rule as the TheirStack API key above.
+		if ( isset( $input['adzuna_app_key'] ) ) {
+			$raw_key = trim( (string) $input['adzuna_app_key'] );
+			if ( '' !== $raw_key && false === strpos( $raw_key, '•' ) ) {
+				$sanitised['adzuna_app_key_encrypted'] = self::encrypt( sanitize_text_field( $raw_key ) );
+			}
+		}
+		if ( ! empty( $input['clear_adzuna_app_key'] ) ) {
+			$sanitised['adzuna_app_key_encrypted'] = '';
 		}
 
 		update_option( self::OPTION_KEY, $sanitised, false );
@@ -199,6 +220,88 @@ class Healthcare_Jobs_Settings {
 	 */
 	public static function has_api_key() {
 		return '' !== self::get_api_key();
+	}
+
+	/**
+	 * Returns the active Adzuna App ID.
+	 *
+	 * A PHP constant (HEALTHCARE_JOBS_ADZUNA_APP_ID) always takes priority
+	 * over the database, mirroring get_api_key().
+	 *
+	 * @return string
+	 */
+	public static function get_adzuna_app_id() {
+		if ( defined( 'HEALTHCARE_JOBS_ADZUNA_APP_ID' ) && HEALTHCARE_JOBS_ADZUNA_APP_ID ) {
+			return trim( (string) HEALTHCARE_JOBS_ADZUNA_APP_ID );
+		}
+		return trim( (string) self::get( 'adzuna_app_id', '' ) );
+	}
+
+	/**
+	 * Returns the active Adzuna App Key.
+	 *
+	 * A PHP constant (HEALTHCARE_JOBS_ADZUNA_APP_KEY) always takes priority
+	 * over the database, mirroring get_api_key().
+	 *
+	 * @return string
+	 */
+	public static function get_adzuna_app_key() {
+		if ( defined( 'HEALTHCARE_JOBS_ADZUNA_APP_KEY' ) && HEALTHCARE_JOBS_ADZUNA_APP_KEY ) {
+			return trim( (string) HEALTHCARE_JOBS_ADZUNA_APP_KEY );
+		}
+
+		$encrypted = self::get( 'adzuna_app_key_encrypted', '' );
+		if ( empty( $encrypted ) ) {
+			return '';
+		}
+
+		return trim( self::decrypt( $encrypted ) );
+	}
+
+	/**
+	 * True when the Adzuna App Key is coming from a wp-config.php constant
+	 * rather than the database.
+	 *
+	 * @return bool
+	 */
+	public static function adzuna_app_key_is_from_constant() {
+		return defined( 'HEALTHCARE_JOBS_ADZUNA_APP_KEY' ) && HEALTHCARE_JOBS_ADZUNA_APP_KEY;
+	}
+
+	/**
+	 * True when both the Adzuna App ID and App Key are configured.
+	 *
+	 * @return bool
+	 */
+	public static function has_adzuna_credentials() {
+		return '' !== self::get_adzuna_app_id() && '' !== self::get_adzuna_app_key();
+	}
+
+	/**
+	 * True when Adzuna import is both switched on and actually configured -
+	 * the single check callers (cron, admin AJAX) should use to decide
+	 * whether to run the Adzuna importer at all.
+	 *
+	 * @return bool
+	 */
+	public static function adzuna_import_enabled() {
+		return ! empty( self::get( 'adzuna_import_enabled', 0 ) ) && self::has_adzuna_credentials();
+	}
+
+	/**
+	 * A masked representation of the stored Adzuna App Key, safe to render
+	 * in admin screens.
+	 *
+	 * @return string
+	 */
+	public static function get_masked_adzuna_app_key() {
+		$key = self::get_adzuna_app_key();
+		if ( '' === $key ) {
+			return '';
+		}
+		$len  = strlen( $key );
+		$tail = substr( $key, max( 0, $len - 4 ), 4 );
+		return str_repeat( '•', 20 ) . $tail;
 	}
 
 	const ENCRYPTION_SECRET_OPTION = 'healthcare_jobs_encryption_secret';
