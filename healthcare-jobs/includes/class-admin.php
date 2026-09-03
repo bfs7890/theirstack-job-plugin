@@ -29,6 +29,7 @@ class Healthcare_Jobs_Admin {
 		add_action( 'admin_post_healthcare_jobs_job_action', array( __CLASS__, 'handle_job_action' ) );
 
 		add_action( 'wp_ajax_healthcare_jobs_test_connection', array( __CLASS__, 'ajax_test_connection' ) );
+		add_action( 'wp_ajax_healthcare_jobs_test_adzuna_connection', array( __CLASS__, 'ajax_test_adzuna_connection' ) );
 		add_action( 'wp_ajax_healthcare_jobs_run_import', array( __CLASS__, 'ajax_run_import' ) );
 		add_action( 'wp_ajax_healthcare_jobs_run_migration', array( __CLASS__, 'ajax_run_migration' ) );
 	}
@@ -344,6 +345,29 @@ class Healthcare_Jobs_Admin {
 		);
 	}
 
+	public static function ajax_test_adzuna_connection() {
+		self::ajax_guard();
+
+		$api    = new Healthcare_Jobs_Adzuna_API();
+		$result = $api->test_connection();
+
+		if ( is_wp_error( $result ) ) {
+			// Never echo raw credentials back; get_error_message() never
+			// contains them since we build messages ourselves in the API class.
+			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+		}
+
+		wp_send_json_success(
+			array(
+				'message' => sprintf(
+					/* translators: %d: number of jobs returned by the minimal test query */
+					__( 'Authentication successful. Minimal query returned %d job(s).', 'healthcare-jobs' ),
+					isset( $result['jobs_returned'] ) ? (int) $result['jobs_returned'] : 0
+				),
+			)
+		);
+	}
+
 	public static function ajax_run_import() {
 		self::ajax_guard();
 
@@ -354,11 +378,70 @@ class Healthcare_Jobs_Admin {
 		$importer = new Healthcare_Jobs_Importer();
 		$result   = $importer->run( 'manual' );
 
+		if ( Healthcare_Jobs_Settings::adzuna_import_enabled() ) {
+			$adzuna_importer = new Healthcare_Jobs_Adzuna_Importer();
+			$result          = self::merge_import_results( $result, $adzuna_importer->run( 'manual' ) );
+		}
+
 		if ( ! empty( $result['error'] ) ) {
 			wp_send_json_error( array( 'message' => $result['error'] ) );
 		}
 
 		wp_send_json_success( $result );
+	}
+
+	/**
+	 * Combines a TheirStack and an Adzuna import result into the single
+	 * summary the "Import Now" button/response already renders: counts are
+	 * summed, errors are concatenated (Adzuna's are already "[Adzuna] "
+	 * prefixed by Healthcare_Jobs_Adzuna_Importer), and the worse of the
+	 * two statuses wins. The combined stage is only ever "authentication"
+	 * when neither source got as far as running a search - if TheirStack's
+	 * own search ran, an Adzuna auth failure is just one more error in the
+	 * list, not a reason to hide TheirStack's real stats behind the
+	 * "no search ran" UI.
+	 *
+	 * @param array $primary Result from Healthcare_Jobs_Importer::run().
+	 * @param array $adzuna  Result from Healthcare_Jobs_Adzuna_Importer::run().
+	 * @return array
+	 */
+	private static function merge_import_results( array $primary, array $adzuna ) {
+		if ( ! empty( $adzuna['error'] ) ) {
+			// Adzuna failed to even start (e.g. its own lock is held) -
+			// surface it as an extra error rather than losing it, but don't
+			// let it override a TheirStack result that did run.
+			if ( ! empty( $primary['error'] ) ) {
+				return $primary;
+			}
+			$primary['errors'][] = '[Adzuna] ' . $adzuna['error'];
+			return $primary;
+		}
+
+		if ( ! empty( $primary['error'] ) ) {
+			return $primary;
+		}
+
+		$stats = $primary['stats'];
+		foreach ( $adzuna['stats'] as $key => $value ) {
+			$stats[ $key ] = ( $stats[ $key ] ?? 0 ) + $value;
+		}
+
+		$status_rank = array( 'success' => 0, 'partial' => 1, 'failed' => 2 );
+		$primary_status = $primary['status'] ?? 'success';
+		$adzuna_status  = $adzuna['status'] ?? 'success';
+		$status         = $status_rank[ $primary_status ] >= $status_rank[ $adzuna_status ] ? $primary_status : $adzuna_status;
+
+		$stage = ( 'authentication' === ( $primary['stage'] ?? 'search' ) && 'authentication' === ( $adzuna['stage'] ?? 'search' ) )
+			? 'authentication'
+			: 'search';
+
+		return array(
+			'stats'      => $stats,
+			'status'     => $status,
+			'errors'     => array_merge( $primary['errors'] ?? array(), $adzuna['errors'] ?? array() ),
+			'error_code' => $primary['error_code'] ?? null,
+			'stage'      => $stage,
+		);
 	}
 
 	/**

@@ -22,6 +22,19 @@ defined( 'ABSPATH' ) || exit;
 	<table class="widefat striped healthcare-jobs-summary-table">
 		<tbody>
 			<tr>
+				<th><?php esc_html_e( 'Sources', 'healthcare-jobs' ); ?></th>
+				<td>
+					<?php
+					$sources = array( __( 'TheirStack', 'healthcare-jobs' ) );
+					if ( Healthcare_Jobs_Settings::adzuna_import_enabled() ) {
+						$sources[] = __( 'Adzuna', 'healthcare-jobs' );
+					}
+					echo esc_html( implode( ', ', $sources ) );
+					?>
+					&mdash; <a href="<?php echo esc_url( admin_url( 'admin.php?page=healthcare-jobs-settings' ) ); ?>"><?php esc_html_e( 'edit', 'healthcare-jobs' ); ?></a>
+				</td>
+			</tr>
+			<tr>
 				<th><?php esc_html_e( 'Country', 'healthcare-jobs' ); ?></th>
 				<td><?php echo esc_html( $settings['default_country'] ); ?></td>
 			</tr>

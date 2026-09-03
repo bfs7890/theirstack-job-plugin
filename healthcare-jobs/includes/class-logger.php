@@ -23,6 +23,11 @@ class Healthcare_Jobs_Logger {
 			$secrets[] = $key;
 		}
 
+		$adzuna_key = Healthcare_Jobs_Settings::get_adzuna_app_key();
+		if ( ! empty( $adzuna_key ) ) {
+			$secrets[] = $adzuna_key;
+		}
+
 		return $secrets;
 	}
 

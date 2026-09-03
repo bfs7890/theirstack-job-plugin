@@ -119,6 +119,11 @@ class Healthcare_Jobs_Cron {
 	public static function run_scheduled_import() {
 		$importer = new Healthcare_Jobs_Importer();
 		$importer->run( 'cron' );
+
+		if ( Healthcare_Jobs_Settings::adzuna_import_enabled() ) {
+			$adzuna_importer = new Healthcare_Jobs_Adzuna_Importer();
+			$adzuna_importer->run( 'cron' );
+		}
 	}
 
 	/**

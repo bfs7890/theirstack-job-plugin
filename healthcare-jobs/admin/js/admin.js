@@ -30,6 +30,29 @@
 			} );
 		} );
 
+		var $testAdzunaButton = $( '#healthcare-jobs-test-adzuna-connection' );
+		var $testAdzunaResult = $( '#healthcare-jobs-test-adzuna-result' );
+
+		$testAdzunaButton.on( 'click', function () {
+			$testAdzunaButton.prop( 'disabled', true );
+			$testAdzunaResult.removeClass( 'success error' ).text( HealthcareJobsAdmin.i18n.testing );
+
+			$.post( HealthcareJobsAdmin.ajaxUrl, {
+				action: 'healthcare_jobs_test_adzuna_connection',
+				nonce: HealthcareJobsAdmin.nonce
+			} ).done( function ( response ) {
+				if ( response.success ) {
+					$testAdzunaResult.addClass( 'success' ).text( response.data.message );
+				} else {
+					$testAdzunaResult.addClass( 'error' ).text( response.data.message );
+				}
+			} ).fail( function () {
+				$testAdzunaResult.addClass( 'error' ).text( 'Request failed. Please try again.' );
+			} ).always( function () {
+				$testAdzunaButton.prop( 'disabled', false );
+			} );
+		} );
+
 		var $importButton = $( '#healthcare-jobs-run-import' );
 		var $progress = $( '#healthcare-jobs-import-progress' );
 		var $status = $( '#healthcare-jobs-import-status' );

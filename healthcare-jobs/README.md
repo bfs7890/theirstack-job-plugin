@@ -2,23 +2,35 @@
 
 A WordPress plugin that imports UK healthcare vacancies from the
 [TheirStack Jobs API](https://theirstack.com/en/docs/api-reference/jobs/search_jobs_v1)
+and, optionally, the [Adzuna Jobs API](https://developer.adzuna.com/docs/search),
 and synchronises them into **Directorist** as real listings, using the same
 listing type, categories, locations, and custom fields as the site's own
 "Add Listing" submission form.
 
-**Directorist is the authoritative job listing system.** TheirStack is only
-an external source of aggregated jobs. This plugin's importer synchronises
-TheirStack into Directorist; it never keeps a separate, competing copy of
-job content, and the public job board never queries TheirStack directly.
+**Directorist is the authoritative job listing system.** TheirStack and
+Adzuna are only external sources of aggregated jobs. This plugin's
+importers synchronise both into Directorist through the identical
+mapping/sync pipeline; it never keeps a separate, competing copy of job
+content, and the public job board never queries either API directly.
 
 Data flow:
 
 ```
-TheirStack API → Importer → Classifier → Directorist Mapper → Directorist Sync
+TheirStack API ─┐
+                 ├→ Classifier → Directorist Mapper → Directorist Sync
+Adzuna API ──────┘
               → Directorist listings (post type at_biz_dir)
               → [healthcare_jobs] 3-column job board → Directorist single-listing page
               → Apply Now → original source URL
 ```
+
+Each source has its own importer (`Healthcare_Jobs_Importer` for
+TheirStack, `Healthcare_Jobs_Adzuna_Importer` for Adzuna) and its own API
+client, but both funnel into the same `Healthcare_Jobs_Classifier` and
+`Healthcare_Jobs_Directorist_Mapper`/`Healthcare_Jobs_Directorist_Sync`
+calls — an Adzuna job renders on exactly the same single-listing page
+layout as a TheirStack job, with the same fields (Company Website button
+included, when the source provides one — see **Adzuna API Setup** below).
 
 ---
 
@@ -32,6 +44,8 @@ TheirStack API → Importer → Classifier → Directorist Mapper → Directoris
   type, categories, or locations of its own; it reuses whatever this site
   already has.
 - A TheirStack API key (https://theirstack.com)
+- (Optional) An Adzuna App ID + App Key (https://developer.adzuna.com) to
+  also import from Adzuna alongside TheirStack — see **Adzuna API Setup**.
 
 ## Installation
 
@@ -95,6 +109,57 @@ add_filter( 'healthcare_jobs_map_job', function ( $job_data, $raw ) {
     return $job_data;
 }, 10, 2 );
 ```
+
+## Adzuna API Setup (optional second source)
+
+Adzuna is a second, independent job source you can enable alongside
+TheirStack. It is off by default (`adzuna_import_enabled` defaults to 0)
+and requires its own credentials — nothing runs against Adzuna until both
+are configured.
+
+1. Sign up at https://developer.adzuna.com and create an app to get an
+   **App ID** and **App Key** (Adzuna authenticates with this pair via
+   query-string parameters, not a bearer token like TheirStack).
+2. Configure them one of two ways:
+   - **Recommended:** define them as constants in `wp-config.php`, kept
+     entirely out of the database:
+     ```php
+     define( 'HEALTHCARE_JOBS_ADZUNA_APP_ID', 'your-app-id' );
+     define( 'HEALTHCARE_JOBS_ADZUNA_APP_KEY', 'your-app-key' );
+     ```
+   - **Or** enter them at **Healthcare Jobs → Settings → Adzuna API**. The
+     App Key is encrypted at rest the same way the TheirStack API key is;
+     the App ID is stored as plain text (it identifies the app, not a
+     secret credential — Adzuna's own docs treat it this way).
+3. Tick **Enable Adzuna Import** and click **Test Adzuna Connection**.
+4. Once enabled, Adzuna jobs are imported using the exact same **Default
+   Country**, **Default Job Age**, **Maximum Jobs Per Import**, and
+   configured job titles/categories as TheirStack — there are no separate
+   Adzuna-only settings for these, by design, so both sources search for
+   the same thing.
+
+**Two real differences from TheirStack that are worth knowing about
+up front:**
+
+- **Country coverage.** Adzuna's endpoint is per-country
+  (`/v1/api/jobs/{country}/search/...`) and only covers a fixed list of
+  countries (see Adzuna's docs) — unlike TheirStack, which accepts an
+  arbitrary ISO code. If **Default Country** isn't one Adzuna covers, the
+  Adzuna import will report an API error rather than silently returning
+  nothing.
+- **No company website.** Adzuna's job search response includes a company
+  *display name* but not a website URL, so `_custom-url` is left empty for
+  Adzuna-sourced listings — the [Company Website button](#company-website-button)
+  simply will not appear on them. Everything else (title, description,
+  company name, location, salary, employment type, source URL, category)
+  maps the same way TheirStack's does.
+
+Adzuna runs as a fully separate importer
+(`Healthcare_Jobs_Adzuna_Importer`) with its own lock and its own
+`wp_healthcare_import_log` row per run — **Import Now** and the cron
+schedule both trigger it right after the TheirStack run when enabled, and
+its dedupe key is the Adzuna job ID prefixed `adzuna-` so it can never
+collide with a TheirStack (or any other source's) `external_job_id`.
 
 ## Directorist Field Mapping
 
@@ -221,6 +286,13 @@ Each import run:
 5. Writes a row to `wp_healthcare_import_log` with Found / Created /
    Updated / Skipped / Closed / Failed counts and any per-job errors.
 
+If Adzuna import is enabled (see **Adzuna API Setup**), clicking **Import
+Now** runs the TheirStack import first as above, then runs the Adzuna
+import the same way (own lock, own log row, own `[Adzuna]`-tagged errors)
+and merges both runs' counts into the one summary shown on screen — a
+failure in one source's search (e.g. an invalid Adzuna App Key) never
+hides the other source's results.
+
 Expiration is Directorist's own responsibility from this point on (its
 `_expiry_date`/cron mechanism), not a separate process this plugin runs.
 
@@ -230,6 +302,9 @@ Automatic imports are enabled by default, every 6 hours, via a custom
 `healthcare_jobs_six_hours` cron schedule (also offers hourly, 3-hourly,
 12-hourly, and daily under **Settings → Import Frequency**). Disable
 automatic imports entirely with the **Automatic Import Enabled** checkbox.
+This single schedule drives both sources: the TheirStack import always
+runs, and the Adzuna import runs immediately after it whenever Adzuna
+import is enabled and configured.
 
 WP-Cron only fires on incoming site traffic. For a low-traffic site,
 consider disabling `DISABLE_WP_CRON` and triggering `wp-cron.php` via a

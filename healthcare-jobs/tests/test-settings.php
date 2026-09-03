@@ -130,4 +130,48 @@ class Healthcare_Jobs_Settings_Test extends WP_UnitTestCase {
 
 		$this->assertSame( 'sk-legacy-value', Healthcare_Jobs_Settings::get_api_key() );
 	}
+
+	public function test_adzuna_app_key_round_trips_through_save_and_masking() {
+		Healthcare_Jobs_Settings::save( array( 'adzuna_app_id' => 'app-id-123', 'adzuna_app_key' => 'app-key-abc123' ) );
+
+		$this->assertSame( 'app-id-123', Healthcare_Jobs_Settings::get_adzuna_app_id() );
+		$this->assertSame( 'app-key-abc123', Healthcare_Jobs_Settings::get_adzuna_app_key() );
+
+		$masked = Healthcare_Jobs_Settings::get_masked_adzuna_app_key();
+		$this->assertStringNotContainsString( 'app-key-abc123', $masked );
+		$this->assertStringEndsWith( 'c123', $masked );
+	}
+
+	/**
+	 * Same "blank submission never clears it" rule as the TheirStack API
+	 * key - saving any other setting must not silently wipe a working
+	 * Adzuna App Key.
+	 */
+	public function test_blank_adzuna_app_key_input_does_not_clear_existing_key() {
+		Healthcare_Jobs_Settings::save( array( 'adzuna_app_key' => 'app-key-keep-me' ) );
+		Healthcare_Jobs_Settings::save( array( 'adzuna_app_key' => '', 'default_country' => 'US' ) );
+
+		$this->assertSame( 'app-key-keep-me', Healthcare_Jobs_Settings::get_adzuna_app_key() );
+	}
+
+	public function test_clear_adzuna_app_key_checkbox_explicitly_removes_the_key() {
+		Healthcare_Jobs_Settings::save( array( 'adzuna_app_key' => 'app-key-to-remove' ) );
+		Healthcare_Jobs_Settings::save( array( 'adzuna_app_key' => '', 'clear_adzuna_app_key' => '1' ) );
+
+		$this->assertSame( '', Healthcare_Jobs_Settings::get_adzuna_app_key() );
+	}
+
+	public function test_adzuna_import_enabled_requires_both_the_toggle_and_credentials() {
+		// adzuna_import_enabled is a checkbox recomputed on every save (like
+		// auto_import_enabled), so every call below submits it explicitly -
+		// a real settings form always resubmits all its checkboxes.
+		Healthcare_Jobs_Settings::save( array( 'adzuna_import_enabled' => '1', 'adzuna_app_id' => '', 'clear_adzuna_app_key' => '1' ) );
+		$this->assertFalse( Healthcare_Jobs_Settings::adzuna_import_enabled(), 'Toggled on but no credentials must not enable it.' );
+
+		Healthcare_Jobs_Settings::save( array( 'adzuna_import_enabled' => '1', 'adzuna_app_id' => 'app-id-123', 'adzuna_app_key' => 'app-key-abc' ) );
+		$this->assertTrue( Healthcare_Jobs_Settings::adzuna_import_enabled(), 'Toggled on with both credentials present must enable it.' );
+
+		Healthcare_Jobs_Settings::save( array( 'adzuna_import_enabled' => '' ) );
+		$this->assertFalse( Healthcare_Jobs_Settings::adzuna_import_enabled(), 'Credentials present but toggled off must not enable it.' );
+	}
 }
