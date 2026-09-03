@@ -48,6 +48,7 @@ function healthcare_jobs_load_includes() {
 		'includes/class-cron.php',
 		'includes/class-shortcode.php',
 		'includes/class-block.php',
+		'includes/class-single-listing.php',
 	);
 
 	foreach ( $includes as $file ) {
@@ -121,6 +122,7 @@ function healthcare_jobs_init() {
 	Healthcare_Jobs_Cron::init();
 	Healthcare_Jobs_Shortcode::init();
 	Healthcare_Jobs_Block::init();
+	Healthcare_Jobs_Single_Listing::init();
 
 	if ( is_admin() && class_exists( 'Healthcare_Jobs_Admin' ) ) {
 		Healthcare_Jobs_Admin::init();

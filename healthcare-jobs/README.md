@@ -258,6 +258,23 @@ every single-job page linked to, is a genuine Directorist listing served
 by Directorist's own permalink and template — this plugin does not
 register a competing rewrite rule or template for individual jobs.
 
+## Company Website Button
+
+On a Jobs listing's single page (Directorist's own template — see **SEO**
+below), this plugin adds a **Company Website** button next to Directorist's
+Bookmark/Share buttons, linking to that specific job's company website
+(the `_custom-url` field, see **Directorist Field Mapping** above). The
+button is only added when a listing is in the "Jobs" listing type and has
+a company website set (`Healthcare_Jobs_Single_Listing::maybe_enqueue_assets()`).
+
+Because Directorist owns the single-listing template and its header markup
+varies by theme/version, the button isn't inserted via PHP template
+output. Instead `public/js/single-listing.js` locates Directorist's
+rendered Bookmark (or Share) button by its visible label and inserts the
+Company Website button immediately before it in the same action row, so it
+works without depending on a specific Directorist template structure or
+action hook.
+
 ## SEO
 
 Single job pages are Directorist's own listing pages, so canonical URLs,
